@@ -1,0 +1,24 @@
+# Python / Flask
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Live Build Artifacts & Work Directory
+iso_build/live-build-work/
+*.iso
+*.img
+
+# System / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
