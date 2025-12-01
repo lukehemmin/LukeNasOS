@@ -137,10 +137,44 @@
         }
 
         async function reboot() {
-            // 실제 재부팅 API 호출 필요 (system.py에 있다고 가정하거나 추가)
-            // 여기선 임시로 경고창
-            alert('System is rebooting...');
-            // fetch('/api/system/reboot', {method: 'POST'}); 
+            try {
+                const res = await fetch('/api/system/reboot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    alert('System is rebooting... Please wait.');
+                } else {
+                    alert('Reboot failed: ' + data.message);
+                }
+            } catch (err) {
+                alert('Error sending reboot command: ' + err);
+            }
+        }
+
+        // 페이지 로드 시 현재 설치 상태를 확인하고 UI 업데이트
+        document.addEventListener('DOMContentLoaded', checkCurrentStatus);
+
+        async function checkCurrentStatus() {
+            const res = await fetch('/api/install/status');
+            const data = await res.json();
+
+            if (data.status === 'installing') {
+                goToStep(3); // 설치 진행 중
+                monitorProgress(); // 진행 상황 폴링 시작
+            } else if (data.status === 'success') {
+                goToStep(4); // 설치 완료
+            } else if (data.status === 'error') {
+                // 이전에 실패한 경우 다시 Step 2로 이동하여 재시도 유도
+                alert('Previous installation failed: ' + data.message);
+                goToStep(2);
+            } else {
+                goToStep(1); // 기본 상태 (유휴)
+            }
         }
     </script>
 </body>

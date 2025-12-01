@@ -70,3 +70,22 @@ def status():
         'data_free': data_free,
         'data_total': data_total
     })
+
+@system_bp.route('/api/system/reboot', methods=['POST'])
+def reboot_system():
+    """
+    시스템을 재부팅합니다.
+    """
+    try:
+        logger.info("System reboot requested via Web UI")
+        # 즉시 재부팅을 비동기적으로 실행하거나, 응답 후 실행되도록 해야 함.
+        # 여기서는 응답을 먼저 보내기 위해 약간의 지연을 줄 수도 있지만,
+        # 보통은 명령 실행 후 즉시 리턴합니다.
+        
+        # 'reboot' 명령 실행 (sudo 권한 필요할 수 있음)
+        subprocess.Popen(['sudo', 'reboot'])
+        
+        return jsonify({'status': 'success', 'message': 'System is rebooting...'})
+    except Exception as e:
+        logger.error(f"Failed to reboot system: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
