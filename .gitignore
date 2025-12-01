@@ -22,3 +22,4 @@ iso_build/live-build-work/
 .idea/
 *.swp
 *~
+certs/

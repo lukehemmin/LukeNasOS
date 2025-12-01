@@ -14,8 +14,20 @@
 <body>
     <div class="container">
         <header class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
-            <h1 class="h3">LukeNasOS 대시보드</h1>
-            <span class="badge bg-primary" id="os-info">Loading...</span>
+            <div>
+                <h1 class="h3 mb-0">LukeNasOS 대시보드</h1>
+                <div class="text-muted small">
+                    버전: <span id="os-version">{{ version }}</span> | 
+                    현재 슬롯: <span id="active-slot" class="fw-bold">{{ update_status.active_slot }}</span>
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm" onclick="document.getElementById('update-file').click()">
+                    업데이트 파일 선택 (슬롯 <span id="inactive-slot">{{ update_status.inactive_slot }}</span>)
+                </button>
+                <input type="file" id="update-file" style="display: none;" accept=".img,.iso" onchange="uploadUpdate()">
+                <span class="badge bg-primary align-self-center" id="os-info">Loading...</span>
+            </div>
         </header>
 
         <div class="row">
@@ -71,6 +83,54 @@
                     document.getElementById('disk-text').textContent = `${data.disk_free} 사용 가능 / 총 ${data.disk_total}`;
                 })
                 .catch(err => console.error('Error fetching status:', err));
+        }
+
+        function uploadUpdate() {
+            const fileInput = document.getElementById('update-file');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            if (!confirm(`'${file.name}' 파일로 시스템 업데이트를 시작하시겠습니까?\n경고: 업데이트 중에는 전원을 끄지 마세요.`)) {
+                fileInput.value = '';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('update_file', file);
+
+            // 간단한 로딩 표시
+            const btn = document.querySelector('button[onclick*="update-file"]');
+            const originalText = btn.innerText;
+            btn.innerText = '업로드 및 설치 중...';
+            btn.disabled = true;
+
+            fetch('/api/upload_update', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                if (data.status === 'success') {
+                    location.reload();
+                }
+            })
+            .catch(err => {
+                alert('업데이트 업로드 실패: ' + err);
+                console.error(err);
+            })
+            .finally(() => {
+                btn.innerText = originalText;
+                btn.disabled = false;
+                fileInput.value = '';
+            });
+        }
+
+        function checkForUpdates() {
+            // (기존 온라인 업데이트 기능은 잠시 비활성화하거나 유지)
+            if (confirm('시스템 업데이트를 확인하고 설치하시겠습니까?')) {
+                // ...
+            }
         }
 
         setInterval(updateStatus, 2000);

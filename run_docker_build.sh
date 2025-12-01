@@ -66,7 +66,36 @@ net-tools
 curl
 vim
 htop
+rauc
+dbus
 EOF
+
+        # 인증서 복사 (RAUC 검증용)
+        echo 'Copying update certificates...'
+        mkdir -p config/includes.chroot/etc/rauc
+        cp /project/certs/devel.cert.pem config/includes.chroot/etc/rauc/cert.pem
+
+        # RAUC 시스템 설정 파일 생성
+        echo 'Configuring RAUC...'
+        mkdir -p config/includes.chroot/etc/rauc
+        cat <<RAUC_CONF > config/includes.chroot/etc/rauc/system.conf
+[system]
+compatible=LukeNasOS
+bootloader=grub
+
+[keyring]
+path=/etc/rauc/cert.pem
+
+[slot.rootfs.0]
+device=/dev/sda2
+type=ext4
+bootname=A
+
+[slot.rootfs.1]
+device=/dev/sda3
+type=ext4
+bootname=B
+RAUC_CONF
 
         # Web UI 설치 훅 생성
         echo 'Setting up Web UI installation hook...'

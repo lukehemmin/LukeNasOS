@@ -13,6 +13,7 @@ RUN apt-get update && \
     grub-efi-amd64-bin \
     mtools \
     dosfstools \
+    rauc \
     && rm -rf /var/lib/apt/lists/*
 
 # 작업 디렉토리 설정
