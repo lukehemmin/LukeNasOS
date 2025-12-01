@@ -1,98 +1,112 @@
-from flask import Flask, render_template, jsonify
-import psutil
-import platform
-import subprocess
+from flask import Flask, render_template, session, redirect, url_for, request
 import os
-from flask import Flask, render_template, jsonify, request
-from werkzeug.utils import secure_filename
+from routes.system import system_bp
+from routes.update import update_bp
+from routes.auth import auth_bp
+from routes.install import install_bp  # Installer Blueprint
+from utils.config_manager import ConfigManager
+from utils.logger import logger
 from update_engine import update_engine
 
-app = Flask(__name__)
-
-# 파일 업로드 설정
-UPLOAD_FOLDER = '/tmp/uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# 현재 버전 정보 (나중에 파일에서 읽어오도록 개선 가능)
-CURRENT_VERSION = "1.0.0"
-
-@app.route('/')
-def index():
-    update_status = update_engine.get_status()
-    return render_template('index.html', version=CURRENT_VERSION, update_status=update_status)
-
-@app.route('/api/status')
-def status():
-    cpu_percent = psutil.cpu_percent(interval=1)
-    memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-    update_status = update_engine.get_status()
-    
-    return jsonify({
-        'system': platform.system(),
-        'release': platform.release(),
-        'version': CURRENT_VERSION,
-        'active_slot': update_status['active_slot'],
-        'cpu_percent': cpu_percent,
-        'memory_percent': memory.percent,
-        'disk_percent': disk.percent,
-        'disk_free': f"{disk.free / (1024**3):.2f} GB",
-        'disk_total': f"{disk.total / (1024**3):.2f} GB"
-    })
-
-@app.route('/api/update', methods=['POST'])
-def update_system():
+def is_live_mode():
     """
-    A/B 파티션 기반 시스템 업데이트 (온라인/시뮬레이션)
+    /proc/cmdline을 확인하여 Live 부팅 모드인지 확인합니다.
+    'boot=live' 커널 파라미터가 있으면 Live 모드로 간주합니다.
     """
     try:
-        fake_image_path = "/tmp/update.img"
-        
-        if update_engine.install_update(fake_image_path):
-            return jsonify({
-                'status': 'success', 
-                'message': f'업데이트가 슬롯 {update_engine.inactive_slot}에 설치되었습니다. 재부팅하면 적용됩니다.'
-            })
-        else:
-            return jsonify({'status': 'error', 'message': '업데이트 설치 실패'}), 500
+        if os.path.exists('/proc/cmdline'):
+            with open('/proc/cmdline', 'r') as f:
+                cmdline = f.read()
+                if 'boot=live' in cmdline:
+                    return True
+    except Exception:
+        pass
+    return False
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+def create_app():
+    app = Flask(__name__)
+    
+    # 설치 모드 확인
+    app.config['IS_INSTALLER_MODE'] = is_live_mode()
+    if app.config['IS_INSTALLER_MODE']:
+        logger.info("Running in INSTALLER MODE (Live Boot Detected)")
+    
+    # 보안 키 설정 (세션 암호화용)
+    app.secret_key = os.environ.get('SECRET_KEY', 'lukenasos-secret-key-dev')
 
-@app.route('/api/upload_update', methods=['POST'])
-def upload_update():
-    """
-    업데이트 파일(.img/.iso)을 업로드받아 설치합니다.
-    """
-    if 'update_file' not in request.files:
-        return jsonify({'status': 'error', 'message': '파일이 없습니다.'}), 400
+    # 기본 설정
+    # 데이터 저장소: 실제 파티션 마운트 위치 (환경변수로 오버라이드 가능)
+    DATA_DIR = os.environ.get('LUKENASOS_DATA_DIR', '/var/lib/lukenasos/data')
+    UPLOAD_FOLDER = os.path.join(DATA_DIR, 'uploads')
+    CONFIG_FILE = os.path.join(DATA_DIR, 'config', 'settings.json')
+
+    # 디렉토리 준비
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+
+    # Flask Config 설정
+    app.config['DATA_DIR'] = DATA_DIR
+    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+    app.config['CURRENT_VERSION'] = "1.0.0" # TODO: 버전 파일에서 읽어오기
     
-    file = request.files['update_file']
-    if file.filename == '':
-        return jsonify({'status': 'error', 'message': '선택된 파일이 없습니다.'}), 400
+    # 설정 매니저 초기화 및 주입
+    config_manager = ConfigManager(CONFIG_FILE)
+    app.config['config_manager'] = config_manager
+
+    # Blueprint 등록
+    app.register_blueprint(system_bp)
+    app.register_blueprint(update_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(install_bp)
+
+    logger.info(f"LukeNasOS Web UI Started (Data Dir: {DATA_DIR})")
     
-    if file:
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        try:
-            print(f"Uploading file to {filepath}...")
-            file.save(filepath)
+    @app.before_request
+    def check_setup_and_auth():
+        # 정적 파일(css, js 등)은 검사 제외
+        if request.endpoint and 'static' in request.endpoint:
+            return
+
+        # 0. 설치 모드인 경우, /install로 강제 이동
+        if app.config.get('IS_INSTALLER_MODE'):
+            # install 관련 경로는 허용
+            if request.endpoint and request.endpoint.startswith('install.'):
+                return
+            # 나머지는 모두 설치 페이지로 리다이렉트
+            return redirect(url_for('install.index'))
+
+        # 인증/설정 관련 페이지는 검사 제외 (무한 리다이렉트 방지)
+        if request.endpoint and request.endpoint.startswith('auth.'):
+            return
             
-            print(f"Installing update from {filepath}...")
-            if update_engine.install_update(filepath):
-                # 설치 완료 후 파일 삭제 (용량 확보)
-                os.remove(filepath)
-                return jsonify({
-                    'status': 'success', 
-                    'message': f'업데이트({filename})가 슬롯 {update_engine.inactive_slot}에 설치되었습니다. 재부팅하면 적용됩니다.'
-                })
-            else:
-                return jsonify({'status': 'error', 'message': '업데이트 설치에 실패했습니다.'}), 500
-                
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'오류 발생: {str(e)}'}), 500
+        config = app.config['config_manager']
+        is_setup = config.get('setup_completed')
+
+        # 1. 초기 설정이 안 되어 있으면 /setup으로 강제 이동
+        if not is_setup:
+            return redirect(url_for('auth.setup'))
+
+        # 2. 설정은 되었으나 로그인이 안 되어 있으면 /login으로 강제 이동
+        if 'user' not in session:
+            return redirect(url_for('auth.login'))
+
+    @app.route('/')
+    def index():
+        update_status = update_engine.get_status()
+        return render_template('index.html', 
+                             version=app.config['CURRENT_VERSION'], 
+                             update_status=update_status)
+
+    return app
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=True)
+    app = create_app()
+    
+    # 디버그 모드 설정 (환경변수 > 설정파일 > 기본값 False)
+    # 유저나 개발자가 필요 시 활성화 가능
+    debug_mode = os.environ.get('LUKENASOS_DEBUG', 'False').lower() == 'true'
+    
+    if debug_mode:
+        logger.warning("Running in DEBUG mode")
+    
+    app.run(host='0.0.0.0', port=80, debug=debug_mode)
