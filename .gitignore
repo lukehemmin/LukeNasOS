@@ -24,3 +24,14 @@ iso_build/live-build-work/
 *~
 certs/
 .gemini/
+
+# Node.js / Frontend
+node_modules/
+web_ui/frontend/node_modules/
+web_ui/frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+coverage/
+.eslintcache

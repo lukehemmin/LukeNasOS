@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, jsonify, request
+import subprocess
 from installer import installer
 
 install_bp = Blueprint('install', __name__)
@@ -36,3 +37,12 @@ def get_status():
         'message': installer.message,
         'progress': installer.progress
     })
+
+@install_bp.route('/api/install/reboot', methods=['POST'])
+def reboot_system():
+    """설치 완료 후 시스템 재부팅"""
+    try:
+        subprocess.Popen(['reboot'])
+        return jsonify({'success': True, 'message': 'Rebooting...'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500

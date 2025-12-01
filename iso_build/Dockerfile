@@ -14,6 +14,8 @@ RUN apt-get update && \
     mtools \
     dosfstools \
     rauc \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # 작업 디렉토리 설정

@@ -80,31 +80,41 @@ class Installer:
             
             # 2. 파티셔닝 (10%)
             self._update_status(10, f"Partitioning {target_disk}...")
-            # parted 스크립트
-            # 1. EFI (512MB)
-            # 2. ROOT-A (4GB)
-            # 3. ROOT-B (4GB)
-            # 4. DATA (나머지)
+            # Universal Partition Layout (GPT)
+            # 1. BIOS Boot (1MB) - For Legacy BIOS/GPT
+            # 2. EFI System (512MB) - For UEFI
+            # 3. ROOT-A (4GB)
+            # 4. ROOT-B (4GB)
+            # 5. DATA (Rest)
             
             cmds = [
                 ['parted', '-s', target_disk, 'mklabel', 'gpt'],
-                ['parted', '-s', target_disk, 'mkpart', 'ESP', 'fat32', '1MiB', '513MiB'],
-                ['parted', '-s', target_disk, 'set', '1', 'esp', 'on'],
-                ['parted', '-s', target_disk, 'mkpart', 'NAS-SYSTEM-A', 'ext4', '513MiB', '4609MiB'],
-                ['parted', '-s', target_disk, 'mkpart', 'NAS-SYSTEM-B', 'ext4', '4609MiB', '8705MiB'],
-                ['parted', '-s', target_disk, 'mkpart', 'NAS-DATA', 'ext4', '8705MiB', '100%']
+                # 1. BIOS Boot Partition (1MB ~ 2MB)
+                ['parted', '-s', target_disk, 'mkpart', 'non-fs', '1MiB', '2MiB'],
+                ['parted', '-s', target_disk, 'set', '1', 'bios_grub', 'on'],
+                # 2. EFI System Partition (2MB ~ 514MB)
+                ['parted', '-s', target_disk, 'mkpart', 'ESP', 'fat32', '2MiB', '514MiB'],
+                ['parted', '-s', target_disk, 'set', '2', 'esp', 'on'],
+                # 3. Root A
+                ['parted', '-s', target_disk, 'mkpart', 'NAS-SYSTEM-A', 'ext4', '514MiB', '4610MiB'],
+                # 4. Root B
+                ['parted', '-s', target_disk, 'mkpart', 'NAS-SYSTEM-B', 'ext4', '4610MiB', '8706MiB'],
+                # 5. Data
+                ['parted', '-s', target_disk, 'mkpart', 'NAS-DATA', 'ext4', '8706MiB', '100%']
             ]
             
             for cmd in cmds:
                 self._run_command(cmd)
 
-            # 파티션 디바이스 이름 결정 (nvme0n1 -> nvme0n1p1, sda -> sda1)
+            # 파티션 디바이스 이름 결정
             p_prefix = f"{target_disk}p" if target_disk[-1].isdigit() else f"{target_disk}"
             
-            p_efi = f"{p_prefix}1"
-            p_root_a = f"{p_prefix}2"
-            p_root_b = f"{p_prefix}3"
-            p_data = f"{p_prefix}4"
+            # Universal Layout Indices
+            p_bios_grub = f"{p_prefix}1" # Not mounted, used by GRUB in Legacy mode
+            p_efi = f"{p_prefix}2"
+            p_root_a = f"{p_prefix}3"
+            p_root_b = f"{p_prefix}4"
+            p_data = f"{p_prefix}5"
 
             # 디바이스 노드 생성 대기
             time.sleep(2)
@@ -222,13 +232,13 @@ tmpfs              /tmp            tmpfs   defaults,noatime,mode=1777 0 0
 
     def _configure_rauc(self, root_mnt, device):
         # RAUC 설정 파일 생성
-        # 2GB LiveCD 이미지에서 복사해온 설정이 있을 수 있으니 덮어씀
         rauc_conf_path = f"{root_mnt}/etc/rauc/system.conf"
         os.makedirs(os.path.dirname(rauc_conf_path), exist_ok=True)
         
         # 파티션 이름 결정
         p_prefix = f"{device}p" if device[-1].isdigit() else f"{device}"
         
+        # Universal Layout: RootA is p3, RootB is p4
         conf_content = f"""
 [system]
 compatible=LukeNasOS
@@ -238,12 +248,12 @@ bootloader=grub
 path=/etc/rauc/keyring.pem
 
 [slot.rootfs.0]
-device={p_prefix}2
+device={p_prefix}3
 type=ext4
 bootname=A
 
 [slot.rootfs.1]
-device={p_prefix}3
+device={p_prefix}4
 type=ext4
 bootname=B
 """
@@ -251,15 +261,17 @@ bootname=B
             f.write(conf_content)
 
     def _install_grub(self, root_mnt, device):
+        # Check Boot Mode (Legacy vs UEFI)
+        is_efi = os.path.exists("/sys/firmware/efi")
+        mode_str = "UEFI" if is_efi else "Legacy BIOS"
+        logger.info(f"Detected Boot Mode: {mode_str}")
+
         # GRUB 설치를 위해 필요한 가상 파일시스템 바인드 마운트
         for d in ['dev', 'proc', 'sys']:
             self._run_command(['mount', '--bind', f"/{d}", f"{root_mnt}/{d}"])
         
         try:
             # GRUB 기본 설정 파일 생성 (/etc/default/grub)
-            # RAUC와 연동을 위해 GRUB_CMDLINE_LINUX에 rauc.slot=A 추가 (초기값)
-            # 실제 부팅 시엔 grub 스크립트가 처리하겠지만, 기본값으로 넣어둠
-            
             grub_default = """
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=3
@@ -271,22 +283,22 @@ GRUB_DISABLE_OS_PROBER=true
             with open(f"{root_mnt}/etc/default/grub", 'w') as f:
                 f.write(grub_default)
 
-            # GRUB 설치 (EFI)
-            # chroot 내부에서 실행
-            # update-grub 실행
-            
+            # GRUB 설치 명령 실행 (Chroot 내부)
             chroot_cmd = ['chroot', root_mnt, '/bin/bash', '-c']
             
-            # 1. grub-install
-            self._run_command(chroot_cmd + [f"grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=LukeNasOS --recheck {device}"])
+            if is_efi:
+                # UEFI Installation
+                logger.info("Installing GRUB for x86_64-efi...")
+                self._run_command(chroot_cmd + [f"grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=LukeNasOS --recheck {device}"])
+            else:
+                # Legacy BIOS Installation (i386-pc)
+                # Installs to the MBR and the 'bios_grub' partition (Part 1)
+                logger.info("Installing GRUB for i386-pc (Legacy)...")
+                self._run_command(chroot_cmd + [f"grub-install --target=i386-pc --recheck {device}"])
             
-            # 2. grub-mkconfig
+            # 공통: grub config 생성
             self._run_command(chroot_cmd + ["update-grub"])
 
-            # TODO: RAUC 전용 GRUB 스크립트 추가 (고급 A/B 로직)
-            # 지금은 표준 update-grub 결과에 의존.
-            # RAUC가 제공하는 contrib/grub.conf 템플릿을 나중에 통합해야 함.
-            
         finally:
             # 바인드 마운트 해제
             for d in ['sys', 'proc', 'dev']:

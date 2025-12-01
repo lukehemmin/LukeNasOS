@@ -149,11 +149,70 @@ systemctl enable lukenasos-banner.service
 EOF
 chmod +x config/hooks/normal/02-install-banner.hook.chroot
 
+# 5.6 Persistence (Data Preservation) 설정
+echo "Setting up Persistence Layer..."
+
+# 스크립트 파일 복사
+if [ -f "$SCRIPT_DIR/scripts/persistence.sh" ]; then
+    cp "$SCRIPT_DIR/scripts/persistence.sh" config/includes.chroot/opt/lukenasos/scripts/
+    chmod +x config/includes.chroot/opt/lukenasos/scripts/persistence.sh
+else
+    echo "Error: Persistence script not found at $SCRIPT_DIR/scripts/persistence.sh"
+    exit 1
+fi
+
+# Hook: Persistence Service
+cat <<EOF > config/hooks/normal/03-install-persistence.hook.chroot
+#!/bin/bash
+set -e
+
+cat <<SERVICE > /etc/systemd/system/lukenasos-persistence.service
+[Unit]
+Description=LukeNasOS Data Persistence Layer
+# 데이터 파티션 마운트 이후 실행 (fstab에 의해 마운트됨)
+# 구체적인 마운트 유닛 이름은 경로 기반임: var-lib-lukenasos-data.mount
+RequiresMountsFor=/var/lib/lukenasos/data
+# 네트워크 등 주요 서비스 시작 전에 실행되어야 함
+Before=network-pre.target smbd.service nmbd.service ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lukenasos/scripts/persistence.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+SERVICE
+
+systemctl enable lukenasos-persistence.service
+EOF
+chmod +x config/hooks/normal/03-install-persistence.hook.chroot
+
+# 5.9 React Frontend Build
+echo "Building React Frontend..."
+FRONTEND_DIR="$PROJECT_ROOT/web_ui/frontend"
+if [ -d "$FRONTEND_DIR" ]; then
+    # Install dependencies and build
+    # Using --prefix to run npm inside the directory
+    echo "Running npm install..."
+    npm install --prefix "$FRONTEND_DIR"
+    echo "Running npm run build..."
+    npm run build --prefix "$FRONTEND_DIR"
+    
+    # Copy build artifacts to ISO context
+    echo "Copying frontend build artifacts..."
+    mkdir -p config/includes.chroot/opt/lukenasos/web_ui/frontend_dist
+    cp -r "$FRONTEND_DIR/dist/"* config/includes.chroot/opt/lukenasos/web_ui/frontend_dist/
+else
+    echo "Warning: Frontend directory not found at $FRONTEND_DIR"
+fi
+
 # 6. Web UI 소스 파일을 빌드 컨텍스트로 복사
 echo "Copying Web UI source files to build context..."
 mkdir -p config/includes.chroot/opt/lukenasos/web_ui
 if [ -d "$PROJECT_ROOT/web_ui" ]; then
-    cp -r "$PROJECT_ROOT/web_ui/"* config/includes.chroot/opt/lukenasos/web_ui/
+    # Copy Python backend files, excluding the frontend source directory
+    rsync -av --exclude='frontend' --exclude='__pycache__' "$PROJECT_ROOT/web_ui/" config/includes.chroot/opt/lukenasos/web_ui/
 else
     echo "Warning: Web UI source directory not found at $PROJECT_ROOT/web_ui"
 fi
