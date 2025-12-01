@@ -25,11 +25,15 @@ mkdir -p "$BUNDLE_DIR"
 TEMP_DIR=$(mktemp -d)
 echo "Preparing update content in $TEMP_DIR..."
 
-# (예시) 여기에 실제로 업데이트할 파일들을 넣습니다.
-# 보통은 전체 rootfs 이미지를 넣거나, 변경된 파일만 넣습니다.
-# 여기서는 데모용으로 더미 파일과 Web UI 코드를 넣습니다.
-mkdir -p "$TEMP_DIR/opt/lukenasos/web_ui"
-cp -r "$PROJECT_ROOT/web_ui/"* "$TEMP_DIR/opt/lukenasos/web_ui/"
+# 실제 RootFS 소스 위치 (Live Build 작업 결과물)
+CHROOT_DIR="$PROJECT_ROOT/iso_build/live-build-work/chroot"
+
+if [ ! -d "$CHROOT_DIR" ]; then
+    echo "Error: Build chroot directory not found at $CHROOT_DIR"
+    echo "Please run './run_docker_build.sh' first to build the base system."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
 
 # manifest.raucm 생성
 cat <<MANIFEST > "$TEMP_DIR/manifest.raucm"
@@ -41,9 +45,14 @@ version=$VERSION
 filename=rootfs.img
 MANIFEST
 
-# (데모용) 더미 rootfs 이미지 생성 (실제로는 빌드된 rootfs를 사용해야 함)
-# 10MB 더미 파일
-dd if=/dev/zero of="$TEMP_DIR/rootfs.img" bs=1M count=10
+# 실제 RootFS 이미지 생성 (SquashFS 사용)
+echo "Compressing rootfs from $CHROOT_DIR..."
+# Docker를 사용하여 mksquashfs 실행 (호스트 의존성 제거 및 권한 문제 해결)
+docker run --rm \
+    -v "$PROJECT_ROOT:/project" \
+    -v "$TEMP_DIR:/update-content" \
+    lukenasos-builder \
+    mksquashfs /project/iso_build/live-build-work/chroot /update-content/rootfs.img -comp xz -noappend -wildcards
 
 # 3. Docker를 사용하여 번들 생성 (호스트에 rauc가 없을 수 있으므로)
 echo "Creating bundle using Docker..."
@@ -57,6 +66,14 @@ docker run --rm \
         --key /project/certs/devel.key \
         /update-content \
         /project/update_bundles/$(basename "$OUTPUT_FILE")
+
+# 4. 생성된 번들 검증 (rauc info)
+echo "Verifying bundle..."
+docker run --rm \
+    -v "$PROJECT_ROOT:/project" \
+    -w /project \
+    lukenasos-builder \
+    rauc info /project/update_bundles/$(basename "$OUTPUT_FILE")
 
 # 정리
 rm -rf "$TEMP_DIR"

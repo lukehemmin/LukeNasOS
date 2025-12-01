@@ -1,21 +1,29 @@
 #!/bin/bash
 
 # ISO 빌드 스크립트 (Debian Live Build 기반)
-# 주의: 이 스크립트는 root 권한이 필요하며, live-build 패키지가 설치된 Debian/Ubuntu 환경에서 실행해야 합니다.
+# 이 스크립트는 Docker 컨테이너 내부 또는 호스트(필수 패키지 설치 시)에서 실행할 수 있습니다.
 
 set -e
 
-# 작업 디렉토리 설정
-WORK_DIR="live-build-work"
-NAS_ROOT="$(pwd)/.."
+# 1. 경로 설정
+# 스크립트가 위치한 디렉토리 (iso_build)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 프로젝트 루트 (LukeNasOS)
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Live Build 작업 디렉토리
+WORK_DIR="$SCRIPT_DIR/live-build-work"
 
-# 필수 패키지 확인
+echo "=== LukeNasOS ISO Build Script ==="
+echo "Project Root: $PROJECT_ROOT"
+echo "Work Dir:     $WORK_DIR"
+
+# 2. 필수 패키지 확인 (호스트 실행 시 방어 로직)
 if ! command -v lb >/dev/null 2>&1; then
     echo "Error: 'lb' command not found. Please install 'live-build' package."
     exit 1
 fi
 
-# 작업 디렉토리 초기화
+# 3. 작업 디렉토리 초기화
 if [ -d "$WORK_DIR" ]; then
     echo "Cleaning up existing work directory..."
     rm -rf "$WORK_DIR"
@@ -38,8 +46,9 @@ lb config \
     --mirror-binary-security "http://security.debian.org/debian-security/" \
     --keyring-packages "debian-archive-keyring"
 
-# 커스텀 패키지 리스트 추가
+# 4. 커스텀 패키지 리스트 추가
 echo "Adding custom packages..."
+mkdir -p config/package-lists
 cat <<EOF > config/package-lists/nas.list.chroot
 python3
 python3-pip
@@ -51,9 +60,18 @@ net-tools
 curl
 vim
 htop
+rauc
+dbus
+parted
+dosfstools
+e2fsprogs
+grub-pc-bin
+grub-efi-amd64-bin
+rsync
+efibootmgr
 EOF
 
-# Web UI 파일 복사 (chroot hooks 사용)
+# 5. Web UI 설치 훅 생성
 echo "Setting up Web UI installation hook..."
 mkdir -p config/hooks/normal
 cat <<EOF > config/hooks/normal/01-install-web-ui.hook.chroot
@@ -84,13 +102,139 @@ systemctl enable lukenasos-web.service
 EOF
 chmod +x config/hooks/normal/01-install-web-ui.hook.chroot
 
-# Web UI 소스 파일을 빌드 컨텍스트로 복사 (includes.chroot)
+# 5.5 Web UI 접속 정보 표시 (Banner) 설정
+echo "Setting up Web UI Banner..."
+cat <<EOF > config/hooks/normal/02-install-banner.hook.chroot
+#!/bin/bash
+set -e
+
+# 스크립트 디렉토리 생성
+mkdir -p /opt/lukenasos/scripts
+
+# IP 표시 스크립트 생성 (Dashboard Mode)
+cat <<SCRIPT > /opt/lukenasos/scripts/show_banner.sh
+#!/bin/bash
+
+# TTY 화면 정리 및 색상 코드
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+while true; do
+    clear
+    echo -e "\${GREEN}"
+    echo "======================================================="
+    echo "              LukeNasOS System Ready                   "
+    echo "======================================================="
+    echo -e "\${NC}"
+    echo "   To install or manage the system, please access"
+    echo "   the Web Dashboard via any of the following URLs:"
+    echo ""
+
+    # 네트워크 인터페이스 및 IP 파싱 (Loopback 제외)
+    found_ip=0
+    while read -r line; do
+        iface=\$(echo "\$line" | awk '{print \$2}')
+        ip_cidr=\$(echo "\$line" | awk '{print \$4}')
+        # CIDR 제거 (192.168.1.5/24 -> 192.168.1.5)
+        ip_addr=\${ip_cidr%/*}
+        
+        echo -e "   \${CYAN}▶ Interface [\$iface]:\${NC} \${YELLOW}http://\$ip_addr\${NC}"
+        found_ip=1
+    done < <(ip -4 -o addr show | grep -v " lo ")
+
+    if [ "\$found_ip" -eq 0 ]; then
+        echo -e "   \${YELLOW}[!] Waiting for network connection...\${NC}"
+    fi
+
+    echo ""
+    echo "======================================================="
+    echo ""
+    echo "   [DashBoard Running] - Refreshes every 10 seconds"
+    echo ""
+    echo -e "   \${CYAN}>> Press [Alt] + [F2] to access Command Line <<\${NC}"
+    
+    sleep 10
+done
+SCRIPT
+chmod +x /opt/lukenasos/scripts/show_banner.sh
+
+# systemd 서비스 생성
+cat <<SERVICE > /etc/systemd/system/lukenasos-banner.service
+[Unit]
+Description=Show LukeNasOS Access Banner
+After=network-online.target
+Wants=network-online.target
+# 기존 getty(로그인)와 충돌 방지
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/opt/lukenasos/scripts/show_banner.sh
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+# 기본 TTY1 로그인 프롬프트 비활성화 (배너가 독점하기 위해)
+systemctl disable getty@tty1.service
+# 배너 서비스 활성화
+systemctl enable lukenasos-banner.service
+EOF
+chmod +x config/hooks/normal/02-install-banner.hook.chroot
+
+# 6. Web UI 소스 파일을 빌드 컨텍스트로 복사
 echo "Copying Web UI source files to build context..."
 mkdir -p config/includes.chroot/opt/lukenasos/web_ui
-cp -r "$NAS_ROOT/web_ui/"* config/includes.chroot/opt/lukenasos/web_ui/
+if [ -d "$PROJECT_ROOT/web_ui" ]; then
+    cp -r "$PROJECT_ROOT/web_ui/"* config/includes.chroot/opt/lukenasos/web_ui/
+else
+    echo "Warning: Web UI source directory not found at $PROJECT_ROOT/web_ui"
+fi
 
-echo "Building ISO image (this may take a while)..."
-# 실제 빌드 명령어 (주석 처리: 실제 실행 시 시간이 오래 걸리고 root 권한 필요)
-# sudo lb build
+# 7. RAUC 설정 및 인증서 복사
+echo "Configuring RAUC (Certificates & System Config)..."
+mkdir -p config/includes.chroot/etc/rauc
 
-echo "Build configuration complete. Run 'sudo lb build' inside '$WORK_DIR' to generate the ISO."
+# 인증서 복사
+CERT_PATH="$PROJECT_ROOT/certs/devel.cert.pem"
+if [ -f "$CERT_PATH" ]; then
+    cp "$CERT_PATH" config/includes.chroot/etc/rauc/keyring.pem
+    echo "  - Copied devel.cert.pem"
+else
+    echo "  ! Warning: Certificate not found at $CERT_PATH"
+fi
+
+# system.conf 생성
+cat <<EOF > config/includes.chroot/etc/rauc/system.conf
+[system]
+compatible=LukeNasOS
+bootloader=grub
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/disk/by-partlabel/NAS-SYSTEM-A
+type=ext4
+bootname=A
+
+[slot.rootfs.1]
+device=/dev/disk/by-partlabel/NAS-SYSTEM-B
+type=ext4
+bootname=B
+EOF
+
+# 8. ISO 빌드 실행
+echo "Starting ISO build..."
+lb build
+
+echo "=== Build Complete ==="
+echo "ISO location: $WORK_DIR"
+ls -lh *.iso 2>/dev/null || true
