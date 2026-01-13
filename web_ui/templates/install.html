@@ -68,7 +68,18 @@
             document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
             document.getElementById('step' + step).classList.add('active');
             if (step === 2) loadDisks();
+            if (step === 3) startMonitoring();
         }
+
+        // 초기 로딩 시 설치 진행 중인지 확인
+        // checkCurrentStatus가 이미 아래에 구현되어 있으므로 중복 제거
+        async function checkInstallStatus() {
+             // 이미 checkCurrentStatus가 존재하므로 이 함수는 제거하거나 checkCurrentStatus를 호출하도록 변경
+             checkCurrentStatus();
+        }
+        
+        // 페이지 로드 시 실행
+        checkInstallStatus();
 
         async function loadDisks() {
             const res = await fetch('/api/disks');
@@ -97,6 +108,10 @@
             document.getElementById('btn-install').disabled = false;
         }
 
+        function startMonitoring() {
+             monitorProgress();
+        }
+        
         async function confirmInstall() {
             if (!confirm(`WARNING: ALL DATA ON ${selectedDisk} WILL BE ERASED.\nAre you sure you want to continue?`)) return;
             
@@ -157,7 +172,7 @@
         }
 
         // 페이지 로드 시 현재 설치 상태를 확인하고 UI 업데이트
-        document.addEventListener('DOMContentLoaded', checkCurrentStatus);
+        // document.addEventListener('DOMContentLoaded', checkCurrentStatus);
 
         async function checkCurrentStatus() {
             const res = await fetch('/api/install/status');

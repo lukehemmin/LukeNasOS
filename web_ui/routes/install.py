@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, current_app, send_from_directory
 import subprocess
 from installer import installer
 
@@ -6,6 +6,10 @@ install_bp = Blueprint('install', __name__)
 
 @install_bp.route('/install')
 def index():
+    # 프론트엔드가 빌드되어 있다면 프론트엔드 앱을 서빙
+    if current_app.config.get('IS_FRONTEND_BUILT', False):
+        return send_from_directory(current_app.static_folder, 'index.html')
+    # 아니면 기존 템플릿 (fallback)
     return render_template('install.html')
 
 @install_bp.route('/api/disks')

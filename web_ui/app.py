@@ -30,15 +30,21 @@ def create_app():
         static_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), 'frontend/dist'))
         
     # Ensure the directory exists to prevent Flask error
+    is_frontend_built = False
     if not os.path.exists(static_folder):
         os.makedirs(static_folder, exist_ok=True)
         # Create a dummy index.html for dev if missing
         with open(os.path.join(static_folder, 'index.html'), 'w') as f:
             f.write('<h1>Frontend not built. Run npm run build in frontend/</h1>')
+    else:
+        # Check if it looks like a real React build
+        is_frontend_built = os.path.exists(os.path.join(static_folder, 'index.html')) and \
+                            os.path.exists(os.path.join(static_folder, 'assets'))
 
     logger.info(f"Serving frontend from: {static_folder}")
 
     app = Flask(__name__, static_folder=static_folder, static_url_path='')
+    app.config['IS_FRONTEND_BUILT'] = is_frontend_built
     
     # System Configuration
     app.config['IS_INSTALLER_MODE'] = is_live_mode()

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, current_app, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 import subprocess
 from utils.logger import logger
@@ -14,6 +14,9 @@ def setup():
         return redirect(url_for('auth.login'))
 
     if request.method == 'GET':
+        # 프론트엔드 빌드 여부 확인
+        if current_app.config.get('IS_FRONTEND_BUILT', False):
+            return send_from_directory(current_app.static_folder, 'index.html')
         return render_template('setup.html')
 
     if request.method == 'POST':
@@ -55,6 +58,9 @@ def setup():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
+        # 프론트엔드 빌드 여부 확인
+        if current_app.config.get('IS_FRONTEND_BUILT', False):
+            return send_from_directory(current_app.static_folder, 'index.html')
         return render_template('login.html')
 
     if request.method == 'POST':

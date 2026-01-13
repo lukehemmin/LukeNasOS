@@ -17,6 +17,26 @@ export default function Installer() {
   const [statusMsg, setStatusMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // Step 1: Check Installation Status
+  useEffect(() => {
+    const checkInstallStatus = async () => {
+      try {
+        const res = await axios.get('/api/install/status');
+        if (res.data.status === 'installing') {
+          setStep(3);
+          setProgress(res.data.progress);
+          setStatusMsg(res.data.message);
+        }
+      } catch (e) {
+        console.error("Failed to check install status:", e);
+      }
+    };
+
+    if (step === 1) {
+        checkInstallStatus();
+    }
+  }, [step]);
+
   // Step 2: Fetch Disks
   useEffect(() => {
     if (step === 2) {
