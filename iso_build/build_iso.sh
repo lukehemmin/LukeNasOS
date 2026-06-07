@@ -190,6 +190,8 @@ Description=LukeNasOS Data Persistence Layer
 # 데이터 파티션 마운트 이후 실행 (fstab에 의해 마운트됨)
 # 구체적인 마운트 유닛 이름은 경로 기반임: var-lib-lukenasos-data.mount
 RequiresMountsFor=/var/lib/lukenasos/data
+# live 모드 등 data 파티션이 마운트되지 않은 환경에서는 깔끔히 skip (부팅 지연 방지)
+ConditionPathIsMountPoint=/var/lib/lukenasos/data
 # 네트워크 등 주요 서비스 시작 전에 실행되어야 함
 Before=network-pre.target smbd.service nmbd.service ssh.service
 
