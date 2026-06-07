@@ -17,19 +17,36 @@ echo "=== LukeNasOS ISO Build Script ==="
 echo "Project Root: $PROJECT_ROOT"
 echo "Work Dir:     $WORK_DIR"
 
+# 1.5 빌드 모드: fast(개발, 기본) | release(배포)
+BUILD_MODE="${BUILD_MODE:-fast}"
+case "$BUILD_MODE" in
+    fast)    SQUASHFS_COMP="zstd" ;;   # xz 대비 압축 시간 대폭 단축, 부팅 가능(bookworm 커널 zstd 지원)
+    release) SQUASHFS_COMP="xz"   ;;   # 최소 ISO 크기
+    *) echo "Error: unknown BUILD_MODE='$BUILD_MODE' (fast|release)"; exit 1 ;;
+esac
+echo "Build mode:   $BUILD_MODE (squashfs compression: $SQUASHFS_COMP)"
+
 # 2. 필수 패키지 확인 (호스트 실행 시 방어 로직)
 if ! command -v lb >/dev/null 2>&1; then
     echo "Error: 'lb' command not found. Please install 'live-build' package."
     exit 1
 fi
 
-# 3. 작업 디렉토리 초기화
-if [ -d "$WORK_DIR" ]; then
-    echo "Cleaning up existing work directory..."
-    rm -rf "$WORK_DIR"
-fi
+# 3. 작업 디렉토리 준비 (캐시 보존)
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
+
+# 이전 빌드 산출물만 제거하고 cache/ 는 보존한다.
+#  - rm -rf 는 ① 캐시까지 날려 매번 풀빌드를 강제하고
+#             ② chroot 의 bind 마운트(proc/sys/dev)를 강제 삭제할 위험이 있다.
+#  - lb clean 은 마운트를 먼저 해제한 뒤 chroot/binary/stage/source 만 제거하고 cache 는 유지한다.
+if [ -f config/common ]; then
+    echo "Cleaning previous build stages (cache preserved)..."
+    lb clean
+fi
+
+# 스크립트가 매번 재생성하는 커스텀 설정은 stale 방지를 위해 명시적으로 초기화
+rm -rf config/package-lists config/hooks/normal config/includes.chroot
 
 echo "Initializing Live Build configuration..."
 lb config \
@@ -39,6 +56,7 @@ lb config \
     --archive-areas "main contrib non-free-firmware" \
     --bootappend-live "boot=live components quiet splash hostname=lukenasos" \
     --iso-volume "LukeNasOS" \
+    --chroot-squashfs-compression-type "$SQUASHFS_COMP" \
     --mirror-bootstrap "http://deb.debian.org/debian/" \
     --mirror-chroot "http://deb.debian.org/debian/" \
     --mirror-chroot-security "http://security.debian.org/debian-security/" \
@@ -194,8 +212,14 @@ FRONTEND_DIR="$PROJECT_ROOT/web_ui/frontend"
 if [ -d "$FRONTEND_DIR" ]; then
     # Install dependencies and build
     # Using --prefix to run npm inside the directory
-    echo "Running npm install..."
-    npm install --prefix "$FRONTEND_DIR"
+    # 의존성: lockfile 이 바뀐 경우에만 설치 (node_modules 는 호스트에 영속)
+    if [ ! -d "$FRONTEND_DIR/node_modules" ] || \
+       [ "$FRONTEND_DIR/package-lock.json" -nt "$FRONTEND_DIR/node_modules/.package-lock.json" ]; then
+        echo "Installing frontend dependencies (npm ci)..."
+        npm ci --prefix "$FRONTEND_DIR"
+    else
+        echo "Frontend dependencies up-to-date, skipping npm install."
+    fi
     echo "Running npm run build..."
     npm run build --prefix "$FRONTEND_DIR"
     
