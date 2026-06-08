@@ -50,6 +50,8 @@ class Installer:
         self.message = ''
         self.progress = 0
         self.error = None
+        # 슬롯 복제 원본. 실제 설치에서는 현재 live 시스템 '/'. (테스트에서 다른 rootfs 로 교체 가능)
+        self.rsync_source = '/'
 
     def get_disks(self):
         """
@@ -259,8 +261,9 @@ class Installer:
             subprocess.run(['umount', '-R', "/mnt/lukenasos_recovery"], stderr=subprocess.DEVNULL)
 
     def _rsync_system(self, dest_mnt):
-        """현재(live) 시스템 '/' 을 dest_mnt 로 복제하고 필수 디렉토리를 만든다."""
-        rsync_cmd = ['rsync', '-axHAX', '--info=progress2'] + RSYNC_EXCLUDES + ['/', f"{dest_mnt}/"]
+        """현재(live) 시스템(self.rsync_source)을 dest_mnt 로 복제하고 필수 디렉토리를 만든다."""
+        src = self.rsync_source.rstrip('/') + '/'
+        rsync_cmd = ['rsync', '-axHAX', '--info=progress2'] + RSYNC_EXCLUDES + [src, f"{dest_mnt}/"]
         subprocess.run(rsync_cmd, check=True)
         for d in ['proc', 'sys', 'dev', 'run', 'tmp', 'boot/efi', 'var/lib/lukenasos/data']:
             os.makedirs(f"{dest_mnt}/{d}", exist_ok=True)
@@ -294,12 +297,11 @@ class Installer:
         rauc_conf_path = f"{root_mnt}/etc/rauc/system.conf"
         os.makedirs(os.path.dirname(rauc_conf_path), exist_ok=True)
 
-        # 파티션 이름 결정
-        p_prefix = f"{device}p" if device[-1].isdigit() else f"{device}"
-
-        # A=p3, B=p4. C(p5)/DATA(p6)는 RAUC 슬롯이 아니다.
-        # grubenv 는 ESP 의 grub 디렉토리에 둔다(슬롯과 분리). RAUC 는 이 파일에 ORDER/_OK 를 기록.
-        conf_content = f"""
+        # 슬롯은 GPT partlabel 로 참조한다(디바이스 이름 비종속: sda/vda/nvme 무관).
+        #  partlabel 은 GPT 파티션 속성이라 RAUC 가 슬롯을 mkfs 재포맷해도 유지된다.
+        #  C(NAS-RECOVERY-C)/DATA 는 RAUC 슬롯이 아니다.
+        #  grubenv 는 ESP 의 grub 디렉토리에 둔다(슬롯과 분리). RAUC 는 이 파일에 ORDER/_OK 를 기록.
+        conf_content = """
 [system]
 compatible=LukeNasOS
 bootloader=grub
@@ -309,12 +311,12 @@ grubenv=/boot/efi/grub/grubenv
 path=/etc/rauc/keyring.pem
 
 [slot.rootfs.0]
-device={p_prefix}3
+device=/dev/disk/by-partlabel/NAS-SYSTEM-A
 type=ext4
 bootname=A
 
 [slot.rootfs.1]
-device={p_prefix}4
+device=/dev/disk/by-partlabel/NAS-SYSTEM-B
 type=ext4
 bootname=B
 """

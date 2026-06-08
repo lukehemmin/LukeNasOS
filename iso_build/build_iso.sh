@@ -61,6 +61,7 @@ curl
 vim
 htop
 rauc
+rauc-service
 dbus
 parted
 dosfstools
@@ -210,8 +211,9 @@ set -e
 cat <<SERVICE > /etc/systemd/system/lukenasos-confirm-boot.service
 [Unit]
 Description=LukeNasOS Confirm Boot (RAUC mark-good)
-# 시스템이 충분히 올라온 뒤에 확정
-After=multi-user.target
+# rauc 는 D-Bus 데몬(rauc-service)을 통해 동작하므로 dbus 이후,
+# 그리고 핵심 서비스(web)가 올라온 뒤에 슬롯을 good 으로 확정한다.
+After=dbus.service lukenasos-web.service
 
 [Service]
 Type=oneshot
