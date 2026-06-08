@@ -1,0 +1,171 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780914810248,
+  "projectRoot": "/root/LukeNasOS",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "iso_build": {
+      "path": "iso_build",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1780914810226,
+      "keyFiles": [
+        "Dockerfile",
+        "README.md",
+        "UPDATE_MECHANISM.md",
+        "build_iso.sh"
+      ]
+    },
+    "screenshot": {
+      "path": "screenshot",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1780914810235,
+      "keyFiles": [
+        "Screenshot 2025-12-01 at 5.21.40 PM.png",
+        "Screenshot 2025-12-01 at 5.21.42 PM.png"
+      ]
+    },
+    "web_ui": {
+      "path": "web_ui",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1780914810237,
+      "keyFiles": [
+        "README.md",
+        "app.py",
+        "installer.py",
+        "requirements.txt",
+        "update_engine.py"
+      ]
+    },
+    "iso_build/scripts": {
+      "path": "iso_build/scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1780914810239,
+      "keyFiles": [
+        "persistence.sh",
+        "show_banner.sh"
+      ]
+    },
+    "web_ui/routes": {
+      "path": "web_ui/routes",
+      "purpose": "Route handlers",
+      "fileCount": 4,
+      "lastAccessed": 1780914810241,
+      "keyFiles": [
+        "auth.py",
+        "install.py",
+        "system.py"
+      ]
+    },
+    "web_ui/utils": {
+      "path": "web_ui/utils",
+      "purpose": "Utility functions",
+      "fileCount": 2,
+      "lastAccessed": 1780914810242,
+      "keyFiles": [
+        "config_manager.py",
+        "logger.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "web_ui/app.py",
+      "accessCount": 5,
+      "lastAccessed": 1780926045159,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/installer.py",
+      "accessCount": 4,
+      "lastAccessed": 1780926456674,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/update_engine.py",
+      "accessCount": 3,
+      "lastAccessed": 1780926112559,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1780806959997,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/package.json",
+      "accessCount": 2,
+      "lastAccessed": 1780807006055,
+      "type": "file"
+    },
+    {
+      "path": "create_update_bundle.sh",
+      "accessCount": 2,
+      "lastAccessed": 1780926010577,
+      "type": "file"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "accessCount": 1,
+      "lastAccessed": 1780803459984,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/requirements.txt",
+      "accessCount": 1,
+      "lastAccessed": 1780803490089,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1780803999385,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/routes/install.py",
+      "accessCount": 1,
+      "lastAccessed": 1780920194731,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/routes/update.py",
+      "accessCount": 1,
+      "lastAccessed": 1780920195301,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
