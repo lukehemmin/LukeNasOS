@@ -7,19 +7,31 @@ from routes.install import install_bp
 from utils.config_manager import ConfigManager
 from utils.logger import logger
 
+def _read_cmdline():
+    """Return the kernel command line, or '' if unreadable."""
+    try:
+        if os.path.exists('/proc/cmdline'):
+            with open('/proc/cmdline', 'r') as f:
+                return f.read()
+    except Exception:
+        pass
+    return ''
+
+
 def is_live_mode():
     """
     Check if running in Live Boot mode via /proc/cmdline
     """
-    try:
-        if os.path.exists('/proc/cmdline'):
-            with open('/proc/cmdline', 'r') as f:
-                cmdline = f.read()
-                if 'boot=live' in cmdline:
-                    return True
-    except Exception:
-        pass
-    return False
+    return 'boot=live' in _read_cmdline()
+
+
+def is_recovery_mode():
+    """
+    Check if booted into the recovery slot (C).
+    GRUB 의 복구 메뉴 엔트리는 커널 cmdline 에 lukenasos.recovery=1 을 넘긴다.
+    A/B 가 모두 부팅 불가일 때 자동 폴백되며, 이때 설치/복구 UI 를 노출한다.
+    """
+    return 'lukenasos.recovery=1' in _read_cmdline()
 
 def create_app():
     # Determine location of React build artifacts
@@ -47,8 +59,12 @@ def create_app():
     app.config['IS_FRONTEND_BUILT'] = is_frontend_built
     
     # System Configuration
-    app.config['IS_INSTALLER_MODE'] = is_live_mode()
-    if app.config['IS_INSTALLER_MODE']:
+    # 설치/복구 UI 는 live(설치 미디어)와 recovery(복구 슬롯 C) 양쪽에서 노출한다.
+    app.config['IS_RECOVERY_MODE'] = is_recovery_mode()
+    app.config['IS_INSTALLER_MODE'] = is_live_mode() or app.config['IS_RECOVERY_MODE']
+    if app.config['IS_RECOVERY_MODE']:
+        logger.info("Running in RECOVERY MODE (Recovery slot C detected)")
+    elif app.config['IS_INSTALLER_MODE']:
         logger.info("Running in INSTALLER MODE (Live Boot Detected)")
     
     app.secret_key = os.environ.get('SECRET_KEY', 'lukenasos-secret-key-dev')
@@ -80,6 +96,7 @@ def create_app():
         config = app.config['config_manager']
         return jsonify({
             'is_installer_mode': app.config.get('IS_INSTALLER_MODE', False),
+            'is_recovery_mode': app.config.get('IS_RECOVERY_MODE', False),
             'setup_completed': config.get('setup_completed', False),
             'logged_in': 'user' in session,
             'version': app.config.get('CURRENT_VERSION', '1.0.0')

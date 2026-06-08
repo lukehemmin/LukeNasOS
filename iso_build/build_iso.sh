@@ -188,6 +188,60 @@ systemctl enable lukenasos-persistence.service
 EOF
 chmod +x config/hooks/normal/03-install-persistence.hook.chroot
 
+# 5.7 Boot Confirmation (RAUC mark-good) 설정
+echo "Setting up Boot Confirmation Service..."
+
+# 스크립트 파일 복사
+if [ -f "$SCRIPT_DIR/scripts/confirm-boot.sh" ]; then
+    cp "$SCRIPT_DIR/scripts/confirm-boot.sh" config/includes.chroot/opt/lukenasos/scripts/
+    chmod +x config/includes.chroot/opt/lukenasos/scripts/confirm-boot.sh
+else
+    echo "Error: Confirm-boot script not found at $SCRIPT_DIR/scripts/confirm-boot.sh"
+    exit 1
+fi
+
+# Hook: Boot Confirmation Service
+#  부팅이 multi-user 까지 도달하면 현재 A/B 슬롯을 good 으로 확정(rauc status mark-good).
+#  도중에 실패하면 mark-good 가 호출되지 않아 grubenv 의 _TRY 가 남고 다음 부팅에 자동 롤백된다.
+cat <<EOF > config/hooks/normal/04-install-confirm-boot.hook.chroot
+#!/bin/bash
+set -e
+
+cat <<SERVICE > /etc/systemd/system/lukenasos-confirm-boot.service
+[Unit]
+Description=LukeNasOS Confirm Boot (RAUC mark-good)
+# 시스템이 충분히 올라온 뒤에 확정
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lukenasos/scripts/confirm-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl enable lukenasos-confirm-boot.service
+EOF
+chmod +x config/hooks/normal/04-install-confirm-boot.hook.chroot
+
+# 5.8 슬롯 비종속(slot-agnostic) /etc/fstab
+#  A/B/C 어느 슬롯으로 부팅되든 동일하게 동작해야 한다.
+#   - root(/) 은 GRUB 가 root=PARTUUID=... 로 마운트하므로 fstab 에 적지 않는다
+#     (슬롯마다 PARTUUID 가 다르고, RAUC 가 슬롯을 재포맷하면 fs-UUID 도 바뀌기 때문).
+#   - ESP/DATA 는 RAUC 가 건드리지 않는 고정 파티션이라 LABEL 로 안정적으로 마운트한다.
+#   - DATA 는 live/복구 등 없을 수 있으므로 nofail (부팅 지연·실패 방지).
+echo "Writing slot-agnostic /etc/fstab..."
+mkdir -p config/includes.chroot/etc
+cat <<EOF > config/includes.chroot/etc/fstab
+# /etc/fstab (LukeNasOS, slot-agnostic)
+# root(/) 은 GRUB 의 root=PARTUUID=... 로 마운트됨 (여기에 적지 않음)
+LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077                 0 1
+LABEL=NAS-DATA  /var/lib/lukenasos/data  ext4   defaults,nofail            0 2
+tmpfs           /tmp                     tmpfs  defaults,noatime,mode=1777 0 0
+EOF
+
 # 5.9 React Frontend Build
 echo "Building React Frontend..."
 FRONTEND_DIR="$PROJECT_ROOT/web_ui/frontend"

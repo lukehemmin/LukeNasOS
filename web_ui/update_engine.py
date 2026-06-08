@@ -63,6 +63,85 @@ class UpdateEngine:
         except Exception as e:
             logger.error(f"Failed to refresh slots: {e}")
 
+    def _slot_devices(self):
+        """
+        /etc/rauc/system.conf 를 파싱해 {bootname: device} 매핑을 반환한다.
+        예: {'A': '/dev/sda3', 'B': '/dev/sda4'}
+        """
+        devices = {}
+        conf_path = '/etc/rauc/system.conf'
+        try:
+            current_dev = None
+            with open(conf_path, 'r') as f:
+                for raw in f:
+                    line = raw.strip()
+                    if line.startswith('device='):
+                        current_dev = line.split('=', 1)[1].strip()
+                    elif line.startswith('bootname='):
+                        bootname = line.split('=', 1)[1].strip()
+                        if current_dev:
+                            devices[bootname] = current_dev
+                        current_dev = None
+        except Exception as e:
+            logger.warning(f"Could not parse {conf_path}: {e}")
+        return devices
+
+    def _bundle_image_bytes(self, bundle_path):
+        """
+        rauc info 로 번들 내 rootfs 이미지 크기(바이트)를 얻는다. 실패하면 None.
+        주의: tar.gz 번들에서는 '압축된' 이미지 크기라 설치 후 실제 점유보다 작다.
+        따라서 이 값이 슬롯보다 크면 '확실히 안 들어감'으로 판단하는 보수적 가드로만 쓴다
+        (진짜 상한은 RAUC 가 추출 시점에 강제한다).
+        """
+        try:
+            result = subprocess.run(['rauc', 'info', '--output-format=json', bundle_path],
+                                    capture_output=True, text=True)
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            images = data.get('images', [])
+            for entry in images:
+                # 구조: [{"rootfs": {"filename": "...", "size": 123}}, ...]
+                for _slot, info in entry.items():
+                    size = info.get('size')
+                    if size:
+                        return int(size)
+        except Exception as e:
+            logger.warning(f"Could not read bundle image size: {e}")
+        return None
+
+    def _check_capacity(self, bundle_path):
+        """
+        업데이트 전 크기 가드. 비활성 슬롯에 번들이 들어갈 수 있는지 보수적으로 검사.
+        반환: (ok: bool, message: str)
+        """
+        if self.is_simulation:
+            return True, "simulation: capacity check skipped"
+
+        devices = self._slot_devices()
+        target_dev = devices.get(self.inactive_slot)
+        if not target_dev:
+            # 디바이스를 못 찾으면 가드를 건너뛰고 RAUC 에 위임 (가드가 업데이트를 막지 않도록)
+            logger.warning(f"Slot device for '{self.inactive_slot}' not found; skipping capacity guard")
+            return True, "capacity guard skipped (device unknown)"
+
+        try:
+            slot_bytes = int(subprocess.check_output(['blockdev', '--getsize64', target_dev], text=True).strip())
+        except Exception as e:
+            logger.warning(f"blockdev failed for {target_dev}: {e}; skipping capacity guard")
+            return True, "capacity guard skipped (size unknown)"
+
+        image_bytes = self._bundle_image_bytes(bundle_path)
+        if image_bytes is None:
+            return True, "capacity guard skipped (bundle size unknown)"
+
+        # 압축 이미지조차 슬롯의 95% 를 넘으면 풀었을 때 절대 안 들어감 → 사전 거부.
+        if image_bytes > slot_bytes * 0.95:
+            gib = 1024 ** 3
+            return False, (f"Update image ({image_bytes / gib:.1f} GiB) does not fit "
+                           f"slot {self.inactive_slot} ({slot_bytes / gib:.1f} GiB).")
+        return True, "capacity ok"
+
     def get_status(self):
         return {
             'active_slot': self.active_slot,
@@ -108,13 +187,20 @@ class UpdateEngine:
                 logger.info("Simulation update complete")
                 
             else:
+                # 업데이트 전 크기 가드: 비활성 슬롯에 들어갈 수 있는지 먼저 확인
+                self.message = "Checking slot capacity..."
+                ok, cap_msg = self._check_capacity(bundle_path)
+                if not ok:
+                    raise Exception(cap_msg)
+                logger.info(f"Capacity check: {cap_msg}")
+
                 # 실제 RAUC 설치
                 # RAUC install은 오래 걸리므로, 여기서 subprocess.run을 쓰면 블로킹되지만
                 # 이 메서드 자체가 스레드이므로 괜찮음.
-                # 진척도 표시를 위해 rauc install의 출력을 파싱하거나, 
+                # 진척도 표시를 위해 rauc install의 출력을 파싱하거나,
                 # rauc status를 주기적으로 폴링하는 방법이 있음.
                 # 여기서는 단순화하여 실행
-                
+
                 cmd = ['rauc', 'install', bundle_path]
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 stdout, stderr = process.communicate()

@@ -36,23 +36,30 @@ if [ ! -d "$CHROOT_DIR" ]; then
 fi
 
 # manifest.raucm 생성
+#  - 슬롯은 system.conf 에서 type=ext4 로 선언된다. tar 아카이브를 주면 RAUC 가 설치 시
+#    슬롯을 mkfs.ext4 로 포맷한 뒤 tar 를 풀어준다 → 매번 깨끗한 전체 교체(기존 SW 자동 제거).
+#    (squashfs 이미지를 ext4 슬롯에 raw 로 쓰면 fstab/부팅과 어긋나므로 tar 로 일치시킨다.)
 cat <<MANIFEST > "$TEMP_DIR/manifest.raucm"
 [update]
 compatible=LukeNasOS
 version=$VERSION
 
 [image.rootfs]
-filename=rootfs.img
+filename=rootfs.tar.gz
 MANIFEST
 
-# 실제 RootFS 이미지 생성 (SquashFS 사용)
-echo "Compressing rootfs from $CHROOT_DIR..."
-# Docker를 사용하여 mksquashfs 실행 (호스트 의존성 제거 및 권한 문제 해결)
+# 실제 RootFS 이미지 생성 (tar 아카이브)
+echo "Archiving rootfs from $CHROOT_DIR..."
+# Docker를 사용하여 tar 실행 (호스트 의존성 제거 및 권한/소유권 보존)
+#  --numeric-owner: 호스트의 사용자/그룹 이름 매핑에 의존하지 않고 UID/GID 보존
+#  --xattrs/--acls : 확장 속성·ACL 보존 (samba 등에서 필요할 수 있음)
 docker run --rm \
     -v "$PROJECT_ROOT:/project" \
     -v "$TEMP_DIR:/update-content" \
     lukenasos-builder \
-    mksquashfs /project/iso_build/live-build-work/chroot /update-content/rootfs.img -comp xz -noappend -wildcards
+    tar --numeric-owner --xattrs --acls \
+        -czf /update-content/rootfs.tar.gz \
+        -C /project/iso_build/live-build-work/chroot .
 
 # 3. Docker를 사용하여 번들 생성 (호스트에 rauc가 없을 수 있으므로)
 echo "Creating bundle using Docker..."
