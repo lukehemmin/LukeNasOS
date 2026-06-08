@@ -228,6 +228,37 @@ systemctl enable lukenasos-confirm-boot.service
 EOF
 chmod +x config/hooks/normal/04-install-confirm-boot.hook.chroot
 
+# 5.75 SSH 호스트 키 생성 서비스
+#  live-build 의 8050-remove-openssh-server-host-keys 훅이 이미지에서 호스트 키를 제거한다.
+#  live 모드에서는 live-config 가 부팅 시 재생성하지만, 설치된 시스템(rauc.slot=A/B/복구)은
+#  live-config 가 안 돌아 키가 영영 없어 sshd 가 무한 재시작한다. 설치 시스템에서 부팅 때
+#  키가 없으면 생성하도록 서비스를 추가한다(ssh 시작 전, persistence 이후 → /etc/ssh 영속 반영).
+cat <<EOF > config/hooks/normal/05-install-sshkeygen.hook.chroot
+#!/bin/bash
+set -e
+
+cat <<SERVICE > /etc/systemd/system/lukenasos-sshkeygen.service
+[Unit]
+Description=LukeNasOS Generate SSH host keys if missing
+# persistence 가 /etc/ssh 를 데이터 파티션에 바인드한 이후 생성 → 키가 영속·슬롯 간 공유
+After=lukenasos-persistence.service
+Before=ssh.service
+# 키가 이미 있으면(영속 복원 등) 건너뛴다
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl enable lukenasos-sshkeygen.service
+EOF
+chmod +x config/hooks/normal/05-install-sshkeygen.hook.chroot
+
 # 5.8 슬롯 비종속(slot-agnostic) /etc/fstab
 #  A/B/C 어느 슬롯으로 부팅되든 동일하게 동작해야 한다.
 #   - root(/) 은 GRUB 가 root=PARTUUID=... 로 마운트하므로 fstab 에 적지 않는다

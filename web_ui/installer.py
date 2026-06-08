@@ -238,6 +238,10 @@ class Installer:
             self._update_status(80, "Populating recovery slot C...")
             self._populate_recovery(p_recovery_c)
 
+            # 6.5 슬롯 A initramfs 슬림화 (live 제거 → 부팅 속도↑, root=PARTUUID 전용)
+            self._update_status(85, "Optimizing boot image (slot A)...")
+            self._slim_initramfs(target_mnt)
+
             # 7. 부트로더 설치 (90%) - grubenv 기반 A/B 선택 + 복구 폴백 + 숨김 메뉴
             self._update_status(90, "Installing bootloader...")
             self._install_grub(target_mnt, target_disk, partuuids)
@@ -281,8 +285,33 @@ class Installer:
             self._rsync_system(rec_mnt)
             with open(f"{rec_mnt}/etc/fstab", 'w') as f:
                 f.write(SLOT_FSTAB)
+            # 복구 슬롯도 일반 initramfs 로 슬림화(부팅 속도)
+            self._slim_initramfs(rec_mnt)
         finally:
             subprocess.run(['umount', '-R', rec_mnt], stderr=subprocess.DEVNULL)
+
+    def _slim_initramfs(self, mnt):
+        """
+        설치된 슬롯에서 live-boot/live-config 를 제거하고 일반 initramfs 로 재생성한다.
+         - live initrd(~58MB)는 GRUB 의 느린 BIOS 디스크 읽기에서 부팅을 크게 지연시킨다.
+           일반 initramfs 는 훨씬 작고 root=PARTUUID 부팅에 충분하다(live-scan 경로도 제거).
+         - live-config 제거는 설치 시스템에서 hostname 등을 덮어쓰지 않게 한다.
+        설치 시스템 전용 작업이므로 실행 중인 live 시스템에는 영향 없다(대상 chroot 안에서만).
+        """
+        for d in ('dev', 'proc', 'sys'):
+            self._run_command(['mount', '--bind', f"/{d}", f"{mnt}/{d}"])
+        try:
+            chroot = ['chroot', mnt, '/bin/bash', '-c']
+            # 일부 패키지는 없을 수 있으므로 purge 자체는 비치명적으로 처리
+            subprocess.run(chroot + [
+                "DEBIAN_FRONTEND=noninteractive apt-get purge -y "
+                "live-boot live-boot-initramfs-tools live-boot-doc "
+                "live-config live-config-systemd live-config-doc 2>/dev/null || true"])
+            # 일반 initramfs 재생성 (설치된 커널 전체 대상)
+            self._run_command(chroot + ["update-initramfs -u -k all"])
+        finally:
+            for d in ('sys', 'proc', 'dev'):
+                subprocess.run(['umount', f"{mnt}/{d}"], stderr=subprocess.DEVNULL)
 
     def _get_uuid(self, device):
         cmd = ['blkid', '-s', 'UUID', '-o', 'value', device]
