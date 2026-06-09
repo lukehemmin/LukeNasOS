@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /root/LukeNasOS/web_ui && /tmp/lukenas-venv/bin/python /tmp/test_appmgr.py 2>&1\",\"timeout\":180000,\"description\":\"Run app_manager end-to-end test with real docker\"}",
+  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"/tmp/test_appmgr.py\", line 2, in <module>\n    import app_manager as am\nModuleNotFoundError: No module named 'app_manager'",
+  "timestamp": "2026-06-09T06:10:55.002Z",
+  "retry_count": 1
+}
