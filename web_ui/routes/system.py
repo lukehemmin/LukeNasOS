@@ -4,10 +4,12 @@ import platform
 import subprocess
 from update_engine import update_engine
 from utils.logger import logger
+from utils.auth import login_required
 
 system_bp = Blueprint('system', __name__)
 
 @system_bp.route('/api/system/root-password', methods=['POST'])
+@login_required
 def set_root_password():
     data = request.get_json()
     if not data or 'password' not in data:
@@ -41,6 +43,7 @@ def set_root_password():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @system_bp.route('/api/status')
+@login_required
 def status():
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
@@ -56,10 +59,12 @@ def status():
         data_total = "N/A"
 
     update_status = update_engine.get_status()
-    
+    config = current_app.config['config_manager']
+
     return jsonify({
         'system': platform.system(),
         'release': platform.release(),
+        'hostname': config.get('hostname', platform.node()),
         'version': current_app.config.get('CURRENT_VERSION', 'Unknown'),
         'active_slot': update_status['active_slot'],
         'cpu_percent': cpu_percent,
@@ -72,6 +77,7 @@ def status():
     })
 
 @system_bp.route('/api/system/reboot', methods=['POST'])
+@login_required
 def reboot_system():
     """
     시스템을 재부팅합니다.

@@ -1,5 +1,6 @@
 from flask import Flask, send_from_directory, jsonify, session
 import os
+import secrets
 from routes.system import system_bp
 from routes.update import update_bp
 from routes.auth import auth_bp
@@ -67,7 +68,6 @@ def create_app():
     elif app.config['IS_INSTALLER_MODE']:
         logger.info("Running in INSTALLER MODE (Live Boot Detected)")
     
-    app.secret_key = os.environ.get('SECRET_KEY', 'lukenasos-secret-key-dev')
     DATA_DIR = os.environ.get('LUKENASOS_DATA_DIR', '/var/lib/lukenasos/data')
     UPLOAD_FOLDER = os.path.join(DATA_DIR, 'uploads')
     CONFIG_FILE = os.path.join(DATA_DIR, 'config', 'settings.json')
@@ -81,6 +81,15 @@ def create_app():
     
     config_manager = ConfigManager(CONFIG_FILE)
     app.config['config_manager'] = config_manager
+
+    # 세션 서명 키: ① 환경변수 → ② config(NAS-DATA 영구 저장) → ③ 신규 생성·저장.
+    # NAS-DATA 에 저장되므로 재부팅·A/B 업데이트에도 안정(세션 유지)하며 설치마다 고유·예측 불가.
+    secret_key = os.environ.get('SECRET_KEY') or config_manager.get('secret_key')
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        config_manager.set('secret_key', secret_key)
+        logger.info("Generated a new persistent secret_key.")
+    app.secret_key = secret_key
 
     # Register Blueprints
     app.register_blueprint(system_bp)

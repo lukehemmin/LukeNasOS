@@ -2,10 +2,18 @@ import os
 from flask import Blueprint, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 from update_engine import update_engine
+from utils.auth import login_required
 
 update_bp = Blueprint('update', __name__)
 
+@update_bp.route('/api/update/status')
+@login_required
+def update_status():
+    """대시보드 업데이트 진행 상태 (active/inactive slot, status, message, progress)."""
+    return jsonify(update_engine.get_status())
+
 @update_bp.route('/api/update', methods=['POST'])
+@login_required
 def update_system():
     """
     A/B 파티션 기반 시스템 업데이트 (온라인/시뮬레이션)
@@ -25,6 +33,7 @@ def update_system():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @update_bp.route('/api/upload_update', methods=['POST'])
+@login_required
 def upload_update():
     """
     업데이트 파일(.img/.iso)을 업로드받아 설치합니다.

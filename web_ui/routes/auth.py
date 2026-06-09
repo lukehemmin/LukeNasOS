@@ -47,7 +47,10 @@ def setup():
 
             # 3. 설정 완료 플래그 저장
             config.set('setup_completed', True)
-            
+
+            # 4. 자동 로그인: 계정 생성 직후 바로 대시보드로 진입하도록 세션 설정
+            session['user'] = username
+
             logger.info(f"Initial setup completed. Admin user '{username}' created.")
             return jsonify({'status': 'success'})
 
