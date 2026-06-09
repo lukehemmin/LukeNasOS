@@ -7,6 +7,8 @@ RUN apt-get update && \
     debootstrap \
     squashfs-tools \
     xorriso \
+    curl \
+    ca-certificates \
     isolinux \
     syslinux-utils \
     grub-pc-bin \

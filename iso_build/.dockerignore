@@ -1,0 +1,7 @@
+# 빌더 이미지(Dockerfile)는 COPY 가 없으므로 빌드 컨텍스트가 불필요하다.
+# 거대한 작업 디렉토리/바이너리를 daemon 에 전송하지 않도록 제외.
+live-build-work/
+vendor/
+build.log
+*.iso
+*.img

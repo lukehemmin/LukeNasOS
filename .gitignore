@@ -13,8 +13,14 @@ pip-delete-this-directory.txt
 
 # Live Build Artifacts & Work Directory
 iso_build/live-build-work/
+iso_build/build.log
 *.iso
 *.img
+*.raucb
+update_bundles/
+
+# Vendored binaries (re-downloaded/verified by build_iso.sh)
+iso_build/vendor/
 
 # System / IDE
 .DS_Store
