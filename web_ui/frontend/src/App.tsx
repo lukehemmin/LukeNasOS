@@ -4,7 +4,10 @@ import axios from 'axios';
 import Installer from './pages/Installer';
 import Setup from './pages/Setup';
 import Login from './pages/Login';
+import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
+import MyApps from './pages/MyApps';
+import AppStore from './pages/AppStore';
 
 const Loading = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -53,7 +56,12 @@ function App() {
       <Route path="/install" element={<Installer />} />
       <Route path="/setup" element={<Setup onDone={checkSystemStatus} />} />
       <Route path="/login" element={<Login onDone={checkSystemStatus} />} />
-      <Route path="/" element={<Dashboard />} />
+      {/* 인증된 영역: Layout 셸(헤더 + 탭 내비)이 페이지를 감싼다 */}
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/apps" element={<MyApps />} />
+        <Route path="/apps/store" element={<AppStore />} />
+      </Route>
       <Route path="*" element={<Navigate to={status === 'installer' ? '/install' : '/'} replace />} />
     </Routes>
   );

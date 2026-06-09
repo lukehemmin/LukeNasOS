@@ -90,6 +90,9 @@ grub-pc-bin
 grub-efi-amd64-bin
 rsync
 efibootmgr
+docker.io
+iptables
+uidmap
 EOF
 
 # 5. Web UI 설치 훅 생성
@@ -380,6 +383,72 @@ device=/dev/disk/by-partlabel/NAS-SYSTEM-B
 type=ext4
 bootname=B
 EOF
+
+# 7.5 Docker + Compose (앱 기능)
+#  불변 A/B OS 에서 앱(컨테이너)·이미지는 영구 DATA 파티션에 저장해야 업데이트/재부팅에도 유지된다.
+#  daemon.json 의 data-root 를 DATA 파티션으로 돌리고, docker 가 DATA 마운트 이후 뜨게 한다.
+echo "Setting up Docker + Compose (Apps feature)..."
+
+# (a) daemon.json: data-root → DATA 파티션 (이미지·컨테이너·볼륨 영속)
+mkdir -p config/includes.chroot/etc/docker
+cat <<'EOF' > config/includes.chroot/etc/docker/daemon.json
+{
+  "data-root": "/var/lib/lukenasos/data/docker",
+  "storage-driver": "overlay2",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+EOF
+
+# (b) docker.service drop-in: DATA 마운트 + persistence 이후에만 기동
+#     (DATA 없는 live/복구 모드에선 docker 가 뜨지 않지만 부팅·웹UI 는 정상)
+mkdir -p config/includes.chroot/etc/systemd/system/docker.service.d
+cat <<'EOF' > config/includes.chroot/etc/systemd/system/docker.service.d/10-lukenasos.conf
+[Unit]
+RequiresMountsFor=/var/lib/lukenasos/data
+After=lukenasos-persistence.service
+EOF
+
+# (c) 커널 모듈 (overlay 스토리지 / 브리지 네트워킹)
+mkdir -p config/includes.chroot/etc/modules-load.d
+cat <<'EOF' > config/includes.chroot/etc/modules-load.d/docker.conf
+overlay
+br_netfilter
+EOF
+
+# (d) Compose v2 플러그인 (벤더링)
+#     우선순위: 1) iso_build/vendor/docker-compose (오프라인·결정적) 2) 핀고정 버전 다운로드(+sha256 검증)
+#     필요 시 COMPOSE_VERSION 환경변수로 버전을 바꾼다.
+COMPOSE_VERSION="${COMPOSE_VERSION:-v2.32.4}"
+mkdir -p config/includes.chroot/usr/lib/docker/cli-plugins
+COMPOSE_DEST="config/includes.chroot/usr/lib/docker/cli-plugins/docker-compose"
+if [ -f "$SCRIPT_DIR/vendor/docker-compose" ]; then
+    echo "  - Using vendored compose binary (iso_build/vendor/docker-compose)"
+    cp "$SCRIPT_DIR/vendor/docker-compose" "$COMPOSE_DEST"
+else
+    COMPOSE_URL="https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+    echo "  - Downloading docker compose $COMPOSE_VERSION ..."
+    curl -fsSL -o "$COMPOSE_DEST" "$COMPOSE_URL"
+    # 업스트림이 게시한 sha256 로 무결성 검증 (부분/손상 다운로드 방지)
+    if curl -fsSL -o /tmp/compose.sha256 "${COMPOSE_URL}.sha256"; then
+        EXPECTED=$(awk '{print $1}' /tmp/compose.sha256)
+        ACTUAL=$(sha256sum "$COMPOSE_DEST" | awk '{print $1}')
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "Error: docker-compose checksum mismatch ($ACTUAL != $EXPECTED)"; exit 1
+        fi
+        echo "  - compose sha256 verified"
+    fi
+fi
+chmod +x "$COMPOSE_DEST"
+
+# (e) docker/containerd 서비스 활성화 훅
+cat <<'EOF' > config/hooks/normal/06-install-docker.hook.chroot
+#!/bin/bash
+set -e
+systemctl enable docker.service || true
+systemctl enable containerd.service || true
+EOF
+chmod +x config/hooks/normal/06-install-docker.hook.chroot
 
 # 8. ISO 빌드 실행
 echo "Starting ISO build..."

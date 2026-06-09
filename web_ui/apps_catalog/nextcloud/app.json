@@ -1,0 +1,11 @@
+{
+  "name": "Nextcloud",
+  "tagline": "개인 클라우드 — 파일·사진·문서 동기화",
+  "category": "생산성",
+  "icon": "Cloud",
+  "color": "#0ea5e9",
+  "web_ui": { "port_var": "WEBUI_PORT", "path": "/" },
+  "variables": [
+    { "key": "WEBUI_PORT", "label": "웹 포트", "default": 8081, "type": "port" }
+  ]
+}

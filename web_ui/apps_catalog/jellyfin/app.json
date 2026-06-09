@@ -1,0 +1,12 @@
+{
+  "name": "Jellyfin",
+  "tagline": "미디어 서버 — 영화·음악·사진 스트리밍",
+  "category": "미디어",
+  "icon": "Film",
+  "color": "#7c3aed",
+  "web_ui": { "port_var": "WEBUI_PORT", "path": "/" },
+  "variables": [
+    { "key": "WEBUI_PORT", "label": "웹 포트", "default": 8096, "type": "port" },
+    { "key": "TZ", "label": "시간대", "default": "Asia/Seoul", "type": "string" }
+  ]
+}

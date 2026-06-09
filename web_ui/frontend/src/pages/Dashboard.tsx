@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
-  Server, Cpu, MemoryStick, HardDrive, Database, Power, Upload,
-  LogOut, Loader2, AlertCircle, RefreshCw,
+  Cpu, MemoryStick, HardDrive, Database, Power, Upload,
+  Loader2, AlertCircle, RefreshCw,
 } from 'lucide-react';
 
 interface SystemStatus {
@@ -132,33 +132,8 @@ export default function Dashboard() {
     }
   };
 
-  const logout = async () => {
-    try {
-      await axios.get('/logout');
-    } catch {
-      /* 무시: 어차피 로그인 화면으로 보낸다 */
-    }
-    navigate('/login');
-  };
-
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* 헤더 */}
-        <div className="bg-blue-600 text-white rounded-xl shadow-lg p-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Server /> {stats?.hostname || 'LukeNasOS'}
-          </h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm bg-blue-700 px-3 py-1 rounded-full font-mono">
-              v{stats?.version} · slot {stats?.active_slot}
-            </span>
-            <button onClick={logout} className="flex items-center gap-1 text-sm bg-blue-700 hover:bg-blue-800 px-3 py-1.5 rounded-lg">
-              <LogOut size={16} /> 로그아웃
-            </button>
-          </div>
-        </div>
-
+    <div className="space-y-6">
         {error && (
           <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
             <AlertCircle size={20} /> {error}
@@ -249,7 +224,6 @@ export default function Dashboard() {
             <Power size={18} /> 재부팅
           </button>
         </div>
-      </div>
     </div>
   );
 }

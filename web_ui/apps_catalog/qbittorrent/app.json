@@ -1,0 +1,14 @@
+{
+  "name": "qBittorrent",
+  "tagline": "웹 기반 토렌트 클라이언트",
+  "category": "다운로드",
+  "icon": "Download",
+  "color": "#2563eb",
+  "web_ui": { "port_var": "WEBUI_PORT", "path": "/" },
+  "variables": [
+    { "key": "WEBUI_PORT", "label": "웹 포트", "default": 8080, "type": "port" },
+    { "key": "TZ", "label": "시간대", "default": "Asia/Seoul", "type": "string" },
+    { "key": "PUID", "label": "사용자 UID", "default": 1000, "type": "number" },
+    { "key": "PGID", "label": "그룹 GID", "default": 1000, "type": "number" }
+  ]
+}

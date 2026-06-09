@@ -5,6 +5,7 @@ from routes.system import system_bp
 from routes.update import update_bp
 from routes.auth import auth_bp
 from routes.install import install_bp
+from routes.apps import apps_bp
 from utils.config_manager import ConfigManager
 from utils.logger import logger
 
@@ -96,6 +97,7 @@ def create_app():
     app.register_blueprint(update_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(install_bp)
+    app.register_blueprint(apps_bp)
 
     logger.info(f"LukeNasOS Web UI Started (Data Dir: {DATA_DIR})")
 
@@ -119,6 +121,15 @@ def create_app():
             return send_from_directory(app.static_folder, path)
         else:
             return send_from_directory(app.static_folder, 'index.html')
+
+    # SPA fallback: static_url_path='' 의 내장 static 라우트가 /apps 같은 클라이언트 경로를
+    # 가려 404 를 내므로, API 가 아닌 경로의 404 는 index.html 로 되돌려 React Router 가 처리하게 한다.
+    @app.errorhandler(404)
+    def spa_fallback(e):
+        from flask import request
+        if request.path.startswith('/api/'):
+            return jsonify({'status': 'error', 'message': 'Not found'}), 404
+        return send_from_directory(app.static_folder, 'index.html')
 
     return app
 
