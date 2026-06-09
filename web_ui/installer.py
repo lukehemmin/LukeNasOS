@@ -359,6 +359,9 @@ bootname=B
         - 평소 메뉴 숨김(timeout_style=hidden), 부팅 중 키 입력(Esc 등) 시 메뉴 표시.
         - 커널/initrd 는 슬롯 내 버전 비종속 심볼릭 링크(/vmlinuz, /initrd.img) 사용 → 업데이트로
           커널 버전이 바뀌어도 동일 grub.cfg 로 부팅 가능.
+        - A/B 의 가변 커널 cmdline 은 슬롯 안 /boot/lukenasos.cfg (luke_extra) 에서 읽는다 → RAUC
+          rootfs 업데이트만으로 부트옵션을 바꿀 수 있다(ESP grub.cfg 는 불변). 파일이 없거나 깨지면
+          grub.cfg 의 기본값으로 안전 부팅하고, 복구(C)는 조각을 참조하지 않아 항상 고정 cmdline 으로 뜬다.
         menuentry 인덱스: 0=Recovery(C), 1=Slot A, 2=Slot B (기본 폴백=0=복구).
         """
         return f"""# LukeNasOS GRUB - A/B slot selection + recovery fallback (RAUC managed)
@@ -425,13 +428,19 @@ menuentry "LukeNasOS Recovery (C)" {{
 
 menuentry "LukeNasOS (Slot A)" {{
   set root="(${{bootdisk}},gpt3)"
-  linux /vmlinuz root=PARTUUID={partuuids['A']} rw rauc.slot=A quiet panic=60
+  # 가변 cmdline 은 슬롯 안 조각에서 읽어 RAUC 업데이트로 갱신 가능하게 한다.
+  # 기본값을 먼저 두므로 조각이 없거나 source 가 실패해도 안전하게 부팅한다.
+  set luke_extra="quiet panic=60"
+  if [ -f /boot/lukenasos.cfg ]; then source /boot/lukenasos.cfg; fi
+  linux /vmlinuz root=PARTUUID={partuuids['A']} rw rauc.slot=A ${{luke_extra}}
   initrd /initrd.img
 }}
 
 menuentry "LukeNasOS (Slot B)" {{
   set root="(${{bootdisk}},gpt4)"
-  linux /vmlinuz root=PARTUUID={partuuids['B']} rw rauc.slot=B quiet panic=60
+  set luke_extra="quiet panic=60"
+  if [ -f /boot/lukenasos.cfg ]; then source /boot/lukenasos.cfg; fi
+  linux /vmlinuz root=PARTUUID={partuuids['B']} rw rauc.slot=B ${{luke_extra}}
   initrd /initrd.img
 }}
 """

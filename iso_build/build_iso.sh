@@ -139,6 +139,14 @@ else
     exit 1
 fi
 
+if [ -f "$SCRIPT_DIR/scripts/console_tui.py" ]; then
+    cp "$SCRIPT_DIR/scripts/console_tui.py" config/includes.chroot/opt/lukenasos/scripts/
+    chmod +x config/includes.chroot/opt/lukenasos/scripts/console_tui.py
+else
+    echo "Error: Console TUI script not found at $SCRIPT_DIR/scripts/console_tui.py"
+    exit 1
+fi
+
 # Hook: systemd 서비스 설정만 수행
 cat <<EOF > config/hooks/normal/02-install-banner.hook.chroot
 #!/bin/bash
@@ -156,9 +164,13 @@ Conflicts=getty@tty1.service
 [Service]
 Type=simple
 ExecStart=/opt/lukenasos/scripts/show_banner.sh
+Environment=TERM=linux
 StandardInput=tty
 StandardOutput=tty
+StandardError=tty
 TTYPath=/dev/tty1
+TTYReset=yes
+TTYVTDisallocate=yes
 Restart=always
 User=root
 
@@ -320,6 +332,17 @@ cat <<EOF > config/includes.chroot/etc/fstab
 # nofail: Live ISO 부팅 시 해당 파티션이 없어도 부팅 실패하지 않음
 LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077,nofail          0 1
 LABEL=NAS-DATA  /var/lib/lukenasos/data  ext4   defaults,nofail            0 2
+EOF
+
+# 5.85 부트 cmdline 조각 (슬롯 rootfs 에 동봉 → RAUC 업데이트로 갱신 가능)
+#  ESP 의 grub.cfg(A/B 메뉴)가 슬롯에서 이 파일을 source 해 luke_extra 를 덮어쓴다.
+#  새 릴리스에서 커널 부트옵션을 바꾸려면 이 값만 고치면 ESP 를 건드리지 않고 업데이트로 반영된다.
+#  파일이 없거나 깨지면 grub.cfg 의 기본값으로 안전 부팅한다(복구 C 는 이 조각을 참조하지 않음).
+echo "Writing boot cmdline fragment (/boot/lukenasos.cfg)..."
+mkdir -p config/includes.chroot/boot
+cat <<'EOF' > config/includes.chroot/boot/lukenasos.cfg
+# LukeNasOS boot cmdline fragment (GRUB script). RAUC 업데이트로 갱신됨.
+set luke_extra="quiet panic=60"
 EOF
 
 # 5.9 React Frontend Build
