@@ -46,6 +46,26 @@ lb config \
     --mirror-binary-security "http://security.debian.org/debian-security/" \
     --keyring-packages "debian-archive-keyring"
 
+# 3.5 커스텀 부트로더 설정 적용 (LukeNasOS 브랜딩)
+echo "Applying custom bootloader branding..."
+BOOTLOADER_SRC="$SCRIPT_DIR/bootloaders"
+
+# ISOLINUX/SYSLINUX (BIOS boot)
+if [ -d "$BOOTLOADER_SRC/syslinux_common" ]; then
+    mkdir -p config/bootloaders/isolinux
+    mkdir -p config/bootloaders/syslinux_common
+    cp -v "$BOOTLOADER_SRC/syslinux_common/"* config/bootloaders/syslinux_common/
+    # isolinux도 syslinux_common의 splash를 참조하지만, 별도 복사로 안전하게
+    cp -v "$BOOTLOADER_SRC/syslinux_common/splash.png" config/bootloaders/isolinux/ 2>/dev/null || true
+fi
+
+# GRUB (UEFI boot)
+if [ -d "$BOOTLOADER_SRC/grub-pc" ]; then
+    mkdir -p config/bootloaders/grub-pc/live-theme
+    cp -v "$BOOTLOADER_SRC/grub-pc/splash.png" config/bootloaders/grub-pc/ 2>/dev/null || true
+    cp -v "$BOOTLOADER_SRC/grub-pc/live-theme/theme.txt" config/bootloaders/grub-pc/live-theme/ 2>/dev/null || true
+fi
+
 # 4. 커스텀 패키지 리스트 추가
 echo "Adding custom packages..."
 mkdir -p config/package-lists
@@ -149,6 +169,29 @@ systemctl disable getty@tty1.service
 systemctl enable lukenasos-banner.service
 EOF
 chmod +x config/hooks/normal/02-install-banner.hook.chroot
+
+# 'dashboard' 커맨드 설치: 콘솔(Alt+F2)에서 tty1 상태 화면으로 복귀.
+#  - /usr/local/bin/dashboard 로 PATH 에 올림 (kbd 없이 VT ioctl 로 전환)
+#  - 콘솔 로그인 시 복귀 방법을 안내 (/etc/profile.d)
+if [ -f "$SCRIPT_DIR/scripts/dashboard.sh" ]; then
+    cp "$SCRIPT_DIR/scripts/dashboard.sh" config/includes.chroot/opt/lukenasos/scripts/
+    chmod +x config/includes.chroot/opt/lukenasos/scripts/dashboard.sh
+else
+    echo "Error: dashboard script not found at $SCRIPT_DIR/scripts/dashboard.sh"
+    exit 1
+fi
+
+mkdir -p config/includes.chroot/usr/local/bin
+ln -sf /opt/lukenasos/scripts/dashboard.sh config/includes.chroot/usr/local/bin/dashboard
+
+mkdir -p config/includes.chroot/etc/profile.d
+cat <<'HINT' > config/includes.chroot/etc/profile.d/99-lukenasos-dashboard-hint.sh
+# 콘솔 로그인 시 상태 화면 복귀 방법 안내 (대화형 셸에서만)
+case "$-" in *i*)
+    printf '\n\033[0;36m  상태 대시보드 화면으로 돌아가려면: \033[1;33mdashboard\033[0;36m 입력 (또는 Alt+F1)\033[0m\n\n'
+;; esac
+HINT
+chmod +x config/includes.chroot/etc/profile.d/99-lukenasos-dashboard-hint.sh
 
 # 5.6 Persistence (Data Preservation) 설정
 echo "Setting up Persistence Layer..."
@@ -270,9 +313,10 @@ mkdir -p config/includes.chroot/etc
 cat <<EOF > config/includes.chroot/etc/fstab
 # /etc/fstab (LukeNasOS, slot-agnostic)
 # root(/) 은 GRUB 의 root=PARTUUID=... 로 마운트됨 (여기에 적지 않음)
-LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077                 0 1
+# tmpfs /tmp 는 systemd 의 tmp.mount 가 자동 처리하므로 여기에 적지 않음
+# nofail: Live ISO 부팅 시 해당 파티션이 없어도 부팅 실패하지 않음
+LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077,nofail          0 1
 LABEL=NAS-DATA  /var/lib/lukenasos/data  ext4   defaults,nofail            0 2
-tmpfs           /tmp                     tmpfs  defaults,noatime,mode=1777 0 0
 EOF
 
 # 5.9 React Frontend Build

@@ -6,20 +6,20 @@ import shutil
 import threading
 from utils.logger import logger
 
-# 파티션 레이아웃 (MiB). A/B 슬롯은 15GiB 로 상향(실측 rootfs ~2.7GB 대비 충분한 성장 여유).
-# C(복구)는 RAUC 로테이션 밖의 고정 슬롯. OS 영역 합 ≈ 34.5GiB.
+# 파티션 레이아웃 (MiB). A/B 슬롯은 8GiB(실측 rootfs ~2.7GB 대비 약 3x 성장 여유).
+# C(복구)는 RAUC 로테이션 밖의 고정 슬롯. OS 영역 합 ≈ 20.5GiB → 32GB 디스크 지원.
 PART_ESP_START = 2
 PART_ESP_END = 514          # 512MiB ESP
 PART_A_START = 514
-PART_A_END = 15874          # 15GiB
-PART_B_START = 15874
-PART_B_END = 31234          # 15GiB
-PART_C_START = 31234
-PART_C_END = 35330          # 4GiB (recovery)
+PART_A_END = 8706           # 8GiB
+PART_B_START = 8706
+PART_B_END = 16898          # 8GiB
+PART_C_START = 16898
+PART_C_END = 20994          # 4GiB (recovery)
 # DATA: PART_C_END ~ 100%
 
-# 설치 가능한 최소 디스크 크기. OS 영역(≈34.5GiB) + 최소 DATA 여유.
-MIN_DISK_BYTES = 40 * 1024 ** 3   # 40 GiB
+# 설치 가능한 최소 디스크 크기. OS 영역(≈20.5GiB) + 최소 DATA 여유(~9.5GiB).
+MIN_DISK_BYTES = 30 * 1024 ** 3   # 30 GiB
 
 # rsync 공통 제외 목록 (live 시스템 -> 슬롯 복제용)
 RSYNC_EXCLUDES = [
@@ -112,7 +112,7 @@ class Installer:
 
     def _run_install(self, target_disk, config):
         try:
-            # 0. 디스크 크기 가드 (A/B 15GiB + C 4GiB + DATA 여유)
+            # 0. 디스크 크기 가드 (A/B 8GiB + C 4GiB + DATA 여유)
             self._update_status(3, "Checking disk size...")
             try:
                 disk_bytes = int(subprocess.check_output(
@@ -124,7 +124,7 @@ class Installer:
                 raise Exception(
                     f"Disk too small: {disk_bytes / gib:.1f} GiB available, "
                     f"need at least {MIN_DISK_BYTES / gib:.0f} GiB "
-                    f"(A/B 15GiB each + recovery 4GiB + data).")
+                    f"(A/B 8GiB each + recovery 4GiB + data).")
 
             # 1. 초기화 및 언마운트 (5%)
             self._update_status(5, "Unmounting target disk...")
@@ -136,8 +136,8 @@ class Installer:
             # Universal Partition Layout (GPT)
             # 1. BIOS Boot (1MiB)            - Legacy BIOS/GPT
             # 2. EFI System (512MiB)         - UEFI
-            # 3. ROOT-A (15GiB)              - RAUC slot A
-            # 4. ROOT-B (15GiB)              - RAUC slot B
+            # 3. ROOT-A (8GiB)               - RAUC slot A
+            # 4. ROOT-B (8GiB)               - RAUC slot B
             # 5. RECOVERY-C (4GiB)           - 복구 전용 (RAUC 비등록, freeze)
             # 6. DATA (Rest)
             cmds = [

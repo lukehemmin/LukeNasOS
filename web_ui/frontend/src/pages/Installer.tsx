@@ -22,10 +22,20 @@ export default function Installer() {
     const checkInstallStatus = async () => {
       try {
         const res = await axios.get('/api/install/status');
+        // 새로고침 후에도 진행/완료/실패 상태를 백엔드에서 복원한다.
         if (res.data.status === 'installing') {
           setStep(3);
           setProgress(res.data.progress);
           setStatusMsg(res.data.message);
+        } else if (res.data.status === 'success') {
+          // 설치 완료 화면 유지 (새로고침해도 welcome 으로 되돌아가지 않음)
+          setProgress(res.data.progress);
+          setStatusMsg(res.data.message);
+          setStep(4);
+        } else if (res.data.status === 'error') {
+          // 실패는 에러를 표시한 채 디스크 선택 단계로 (재시도 가능)
+          setError(res.data.message);
+          setStep(2);
         }
       } catch (e) {
         console.error("Failed to check install status:", e);

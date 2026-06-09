@@ -44,6 +44,7 @@ while true; do
     echo "   [DashBoard Running] - Refreshes every 10 seconds"
     echo ""
     echo -e "   ${CYAN}>> Press [Alt] + [F2] to access Command Line <<${NC}"
+    echo -e "   ${CYAN}>> Back to this screen: type '${YELLOW}dashboard${CYAN}' or press [Alt] + [F1] <<${NC}"
     
     sleep 10
 done

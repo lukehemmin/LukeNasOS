@@ -76,11 +76,11 @@ docker run --rm \
 
 # 4. 생성된 번들 검증 (rauc info)
 echo "Verifying bundle..."
-docker run --rm \
+docker run --rm --privileged \
     -v "$PROJECT_ROOT:/project" \
     -w /project \
     lukenasos-builder \
-    rauc info /project/update_bundles/$(basename "$OUTPUT_FILE")
+    rauc info --keyring /project/certs/devel.cert.pem /project/update_bundles/$(basename "$OUTPUT_FILE")
 
 # 정리
 rm -rf "$TEMP_DIR"
