@@ -7,10 +7,12 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 import time
 
 
-REFRESH_SECONDS = 5
+FAST_INTERVAL = 2   # 가벼운 항목(네트워크/서비스/시스템 지표) 수집 주기 (초)
+SLOW_INTERVAL = 15  # 무거운 항목(rauc D-Bus 조회) 수집 주기 (초)
 WEB_SERVICE = "lukenasos-web.service"
 RAUC_SERVICE = "rauc.service"
 
@@ -39,14 +41,70 @@ def detect_boot_mode():
     return "system"
 
 
+class StatusCollector(threading.Thread):
+    """백그라운드 상태 수집기.
+
+    UI 루프에서 subprocess 를 직접 부르면 (예: rauc 가 D-Bus 에서 수 초
+    막히는 경우) 키 입력까지 멈춘다. 수집을 데몬 스레드로 분리하고 비용에
+    따라 주기를 차등(FAST/SLOW)해 폴링한다. 값이 실제로 바뀌었을 때만
+    version 을 올려, TUI 는 변경이 있을 때만 다시 그린다.
+    """
+
+    def __init__(self, mode):
+        super().__init__(daemon=True)
+        self.mode = mode
+        self.lock = threading.Lock()
+        self.data = {}
+        self.version = 0
+        self.last_collect = 0.0  # 마지막 수집 완료 시각 (monotonic)
+        self._refresh_now = threading.Event()
+
+    def snapshot(self):
+        with self.lock:
+            return self.version, dict(self.data)
+
+    def request_refresh(self):
+        """R 키 등에서 호출: 다음 틱을 기다리지 않고 즉시 전체 수집."""
+        self._refresh_now.set()
+
+    def run(self):
+        fast_due = 0.0
+        slow_due = 0.0
+        slow_part = {}
+        while True:
+            now = time.monotonic()
+            if self._refresh_now.is_set():
+                self._refresh_now.clear()
+                fast_due = slow_due = now
+
+            if now >= fast_due:
+                merged = collect_fast(self.mode)
+                fast_due = now + FAST_INTERVAL
+                if self.mode == "system":
+                    if now >= slow_due:
+                        slow_part = collect_slow()
+                        slow_due = now + SLOW_INTERVAL
+                    merged.update(slow_part)
+
+                with self.lock:
+                    if merged != self.data:
+                        self.data = merged
+                        self.version += 1
+                self.last_collect = time.monotonic()
+
+            self._refresh_now.wait(timeout=0.5)
+
+
 class ConsoleDashboard:
     def __init__(self, screen, mode="system"):
         self.screen = screen
         self.mode = mode
         self.selected = 0
-        self.last_refresh = 0
         self.data = {}
+        self.data_version = -1
         self.message = ""
+        self.refresh_requested_at = None  # R 키로 즉시 갱신을 요청한 시각
+        self.collector = StatusCollector(mode)
         self.pages = [
             ("Overview", self.draw_overview),
             ("Network", self.draw_network),
@@ -59,17 +117,33 @@ class ConsoleDashboard:
     def run(self):
         curses.curs_set(0)
         self.screen.nodelay(True)
-        self.screen.timeout(1000)
+        self.screen.timeout(250)
         self.init_colors()
+        self.collector.start()
 
+        last_drawn = None
         while True:
-            now = time.monotonic()
-            if now - self.last_refresh >= REFRESH_SECONDS:
-                self.refresh_data()
+            version, data = self.collector.snapshot()
+            if version != self.data_version:
+                self.data_version = version
+                self.data = data
 
-            self.draw()
+            # R 키로 요청한 갱신이 끝나면 (값 변화가 없었어도) 메시지를 정리한다.
+            if (self.refresh_requested_at is not None
+                    and self.collector.last_collect >= self.refresh_requested_at):
+                self.refresh_requested_at = None
+                self.message = "Refreshed."
+
+            # 데이터 변경, 시계(초), 선택, 메시지가 바뀔 때만 다시 그린다.
+            state = (version, int(time.time()), self.selected, self.message)
+            if state != last_drawn:
+                self.draw()
+                last_drawn = state
+
             key = self.screen.getch()
-            self.handle_key(key)
+            if key != -1:
+                self.handle_key(key)
+                last_drawn = None  # 키 입력은 즉시 화면에 반영
 
     def init_colors(self):
         self.colors = {
@@ -110,26 +184,21 @@ class ConsoleDashboard:
         if self.mode != "system":
             # Setup/Recovery 화면은 단일 화면: 새로고침만 받는다.
             if key in (ord("r"), ord("R")):
-                self.refresh_data(force=True)
-                self.message = "Refreshed."
+                self.refresh_requested_at = time.monotonic()
+                self.collector.request_refresh()
+                self.message = "Refreshing..."
             return
         if key in (curses.KEY_UP, ord("k")):
             self.selected = (self.selected - 1) % len(self.pages)
         elif key in (curses.KEY_DOWN, ord("j")):
             self.selected = (self.selected + 1) % len(self.pages)
         elif key in (ord("r"), ord("R")):
-            self.refresh_data(force=True)
-            self.message = "Refreshed."
+            self.collector.request_refresh()
+            self.message = "Refreshing..."
         elif key in (ord("q"), ord("Q")):
             self.message = "Dashboard stays on tty1. Use Alt+F2 for shell."
         elif ord("1") <= key <= ord(str(len(self.pages))):
             self.selected = key - ord("1")
-
-    def refresh_data(self, force=False):
-        if not force and time.monotonic() - self.last_refresh < REFRESH_SECONDS:
-            return
-        self.data = collect_status(self.mode)
-        self.last_refresh = time.monotonic()
 
     def draw(self):
         self.screen.erase()
@@ -318,9 +387,10 @@ class ConsoleDashboard:
     def draw_help(self, top, left, _height, _width):
         lines = [
             "This console stays on tty1 and shows local management status.",
+            "Status updates automatically (network/services every %ds," % FAST_INTERVAL,
+            "update info every %ds). Press R to refresh immediately." % SLOW_INTERVAL,
             "Use Alt+F2 to open a command line.",
             "Run 'dashboard' from a shell to return to this screen.",
-            "Press R to refresh status immediately.",
             "Future menu actions can include updates, network setup, logs, reboot, and shutdown.",
         ]
         for offset, line in enumerate(lines):
@@ -367,25 +437,27 @@ class ConsoleDashboard:
             pass
 
 
-def collect_status(mode="system"):
-    urls = web_urls()
-    if mode != "system":
-        # installer/recovery: 슬롯 디바이스가 없어 rauc 조회는 무의미하고 지연만 생긴다.
-        return {
-            "hostname": socket.gethostname(),
-            "urls": urls,
-            "web_service": service_state(WEB_SERVICE),
-        }
+def collect_fast(mode):
+    """가벼운 항목: /proc 읽기, ip/systemctl 단발 호출. FAST_INTERVAL 주기."""
+    data = {
+        "hostname": socket.gethostname(),
+        "urls": web_urls(),
+        "web_service": service_state(WEB_SERVICE),
+    }
+    if mode == "system":
+        data["system"] = system_status()
+        data["uptime"] = uptime_label()
+    return data
+
+
+def collect_slow():
+    """무거운 항목: rauc D-Bus 조회. SLOW_INTERVAL 주기, system 모드 전용.
+    (installer/recovery 는 슬롯 디바이스가 없어 rauc 조회가 무의미하다.)"""
     rauc = rauc_status()
     return {
-        "hostname": socket.gethostname(),
-        "urls": urls,
-        "web_service": service_state(WEB_SERVICE),
         "rauc_service": service_state(RAUC_SERVICE),
         "rauc": rauc,
         "booted_slot": rauc.get("booted") or boot_slot_from_cmdline(),
-        "system": system_status(),
-        "uptime": uptime_label(),
     }
 
 
