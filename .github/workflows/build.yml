@@ -1,0 +1,195 @@
+name: Build ISO & RAUC
+
+# ── 트리거 ──────────────────────────────────────────────
+# • 모든 브랜치 푸시 → ISO 빌드 (+ artifacts)
+# • 모든 태그 푸시 → ISO + RAUC 번들 빌드 + GitHub Release
+# • 모든 PR → ISO 검증 빌드 (artifacts 없음, 빌드 성공만 확인)
+# • 수동 실행   → ISO 빌드 (브랜치 선택 가능)
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# 여러 커밋을 연속 푸시해도 최신 것만 실행 (이전 실행은 자동 취소)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      BUILDER_IMAGE: lukenasos-builder
+
+    steps:
+      # ── 1. 디스크 확보 ──────────────────────────────────
+      #    표준 러너는 ~14GB 여유. 불필요한 툴체인을 지워
+      #    live-build (패키지 다운로드 + squashfs) 공간을 확보.
+      - name: Free disk space
+        run: |
+          echo "=== Before ==="
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+                      /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          sudo docker system prune -af 2>/dev/null || true
+          echo "=== After ==="
+          df -h /
+
+      # ── 2. 체크아웃 ─────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 3. RAUC 개발 인증서 생성 ────────────────────────
+      #    certs/ 는 .gitignore 에 포함되어 있어 체크아웃에 없음.
+      #    ISO 빌드는 인증서가 없어도 경고만 내고 통과하지만,
+      #    RAUC 번들 생성(릴리즈)에는 반드시 필요하므로 사전 생성.
+      - name: Generate RAUC dev certificates
+        run: |
+          mkdir -p certs
+          if [ ! -f certs/devel.cert.pem ] || [ ! -f certs/devel.key ]; then
+            echo "🔑 Generating self-signed RAUC development keys..."
+            openssl req -newkey rsa:4096 -nodes -keyout certs/devel.key \
+              -x509 -days 3650 -out certs/devel.cert.pem \
+              -subj "/O=LukeNasOS/CN=LukeNasOS Development/"
+          fi
+
+      # ── 4. Docker 준비 ─────────────────────────────────
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      # ── 5. 빌더 이미지 빌드 ─────────────────────────────
+      #    Dockerfile 은 debian:bookworm + live-build + rauc + nodejs 를 포함.
+      #    GHA cache backend 로 레이어 캐시 → 반복 빌드 시간 단축.
+      #    --load: Buildx 이미지를 로컬 Docker store 에 로드 (이후 docker run 에 필요)
+      - name: Build builder Docker image
+        run: |
+          docker buildx build \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --load \
+            -t "$BUILDER_IMAGE" \
+            iso_build/
+
+      # ── 6. ISO 빌드 ─────────────────────────────────────
+      #    --privileged 필요: live-build 가 내부에서 chroot / 마운트 작업을 수행.
+      #    프로젝트 루트 전체를 /project 로 마운트 → 빌드 결과물이 호스트에 남음.
+      - name: Build ISO (live-build)
+        run: |
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}:/project" \
+            "$BUILDER_IMAGE" \
+            /project/iso_build/build_iso.sh
+
+      # ── 7. 권한 복구 ────────────────────────────────────
+      #    Docker 내부에서 root 로 생성된 파일들을 runner 사용자 소유로 변경.
+      - name: Fix artifact permissions
+        if: success()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" \
+            iso_build/live-build-work/ \
+            web_ui/frontend/node_modules/ 2>/dev/null || true
+
+      # ── 8. ISO 파일 식별 ────────────────────────────────
+      - name: Locate ISO artifact
+        id: iso
+        if: success()
+        run: |
+          ISO_PATH=$(find iso_build/live-build-work -maxdepth 1 -name "*.iso" -type f | head -1)
+          if [ -z "$ISO_PATH" ]; then
+            echo "::error::No .iso file found in live-build-work"
+            exit 1
+          fi
+          echo "path=$ISO_PATH" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$ISO_PATH")" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$ISO_PATH" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "📀 ISO: $(basename "$ISO_PATH") ($(du -h "$ISO_PATH" | cut -f1))"
+
+      # ── 9. ISO 아티팩트 업로드 ───────────────────────────
+      #    PR 빌드에서는 스킵 (빌드 검증만 수행).
+      - name: Upload ISO artifact
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lukenasos-iso-${{ github.sha }}
+          path: ${{ steps.iso.outputs.path }}
+          retention-days: 30
+
+      # ── 10. RAUC 업데이트 번들 생성 (태그만) ─────────────
+      #    create_update_bundle.sh 는 chroot + lukenasos-builder 이미지가 필요.
+      #    태그(v1.2.3)에서 버전을 추출해 RAUC manifest 에 기록.
+      - name: Build RAUC update bundle
+        id: rauc
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          # 선행 v 제거 → 순수 시맨틱 버전 (예: v1.0.1 → 1.0.1)
+          VERSION="${TAG_VERSION#v}"
+          echo "📦 Building RAUC bundle for version $VERSION"
+          bash create_update_bundle.sh "$VERSION"
+
+          BUNDLE=$(find update_bundles -name "*.raucb" -type f | head -1)
+          echo "path=$BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$BUNDLE")" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$BUNDLE" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      # ── 11. RAUC 번들 아티팩트 업로드 (태그만) ────────────
+      - name: Upload RAUC bundle artifact
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: lukenasos-raucb-${{ github.ref_name }}
+          path: ${{ steps.rauc.outputs.path }}
+          retention-days: 90
+
+      # ── 12. GitHub Release 생성 (태그만) ─────────────────
+      #    ISO + RAUC 번들을 릴리즈에 첨부하고 자동 생성된
+      #    changelog (커밋 목록)을 본문으로 게시.
+      - name: Create GitHub Release
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LukeNasOS ${{ github.ref_name }}
+          body: |
+            ## 🚀 LukeNasOS ${{ github.ref_name }}
+
+            ### Included Assets
+            | File | Size |
+            |------|------|
+            | ${{ steps.iso.outputs.name }} | ${{ steps.iso.outputs.size }} |
+            | ${{ steps.rauc.outputs.name }} | ${{ steps.rauc.outputs.size }} |
+
+            ### Installation
+            1. Write the ISO to a USB drive and boot.
+            2. Complete the setup wizard (language, timezone, admin account).
+            3. For updates: upload the `.raucb` bundle via **Dashboard → System Update**.
+
+            ### Upgrade from previous version
+            Use the `.raucb` bundle — A/B slot update with automatic rollback.
+            Upload via Web UI (Dashboard → System Update) and reboot.
+          files: |
+            ${{ steps.iso.outputs.path }}
+            ${{ steps.rauc.outputs.path }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 13. 빌드 요약 ──────────────────────────────────
+      - name: Print build summary
+        if: success()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Build completed successfully"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📀 ISO:             ${{ steps.iso.outputs.name }} (${{ steps.iso.outputs.size }})"
+          if [ -n "${{ steps.rauc.outputs.name }}" ]; then
+            echo "📦 RAUC bundle:     ${{ steps.rauc.outputs.name }} (${{ steps.rauc.outputs.size }})"
+            echo "🏷️  Release tag:    ${{ github.ref_name }}"
+          fi
+          echo "🔗 Trigger:         ${{ github.event_name }}"
+          echo "🌿 Branch:          ${{ github.ref_name }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
