@@ -5,6 +5,7 @@ import {
   ExternalLink, Play, Square, Trash2, RotateCw, Loader2, AlertCircle, Boxes, Store,
 } from 'lucide-react';
 import AppCard from '../components/AppCard';
+import { useI18n } from '../i18n';
 
 interface InstalledApp {
   id: string;
@@ -18,6 +19,7 @@ interface InstalledApp {
 }
 
 export default function MyApps() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [apps, setApps] = useState<InstalledApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,9 +38,9 @@ export default function MyApps() {
       setError(null);
     } catch (err: any) {
       if (handleAuthError(err)) return;
-      setError('앱 목록을 불러오지 못했습니다.');
+      setError(t('errApps'));
     }
-  }, [handleAuthError]);
+  }, [handleAuthError, t]);
 
   useEffect(() => {
     fetchApps();
@@ -54,23 +56,21 @@ export default function MyApps() {
       await axios.post(`/api/apps/${id}/${verb}`);
       await fetchApps();
     } catch (err: any) {
-      if (!handleAuthError(err)) alert('작업 실패: ' + (err.response?.data?.message || err.message));
+      if (!handleAuthError(err)) alert(t('errActionPrefix') + (err.response?.data?.message || err.message));
     } finally {
       setAppBusy(id, false);
     }
   };
 
   const uninstall = async (app: InstalledApp) => {
-    if (!confirm(`'${app.name}' 앱을 삭제하시겠습니까?`)) return;
-    const deleteData = confirm(
-      '앱 데이터(파일)도 영구 삭제할까요?\n\n확인 = 데이터까지 삭제\n취소 = 데이터는 보존(재설치 시 복원)'
-    );
+    if (!confirm(t('confirmUninstallFmt', { name: app.name }))) return;
+    const deleteData = confirm(t('confirmDeleteData'));
     setAppBusy(app.id, true);
     try {
       await axios.delete(`/api/apps/${app.id}${deleteData ? '?delete_data=1' : ''}`);
       await fetchApps();
     } catch (err: any) {
-      if (!handleAuthError(err)) alert('삭제 실패: ' + (err.response?.data?.message || err.message));
+      if (!handleAuthError(err)) alert(t('errDeletePrefix') + (err.response?.data?.message || err.message));
     } finally {
       setAppBusy(app.id, false);
     }
@@ -88,7 +88,7 @@ export default function MyApps() {
       <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
         running ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
       }`}>
-        {running ? '실행 중' : state === 'stopped' ? '중지됨' : state}
+        {running ? t('running') : state === 'stopped' ? t('stopped') : state}
       </span>
     );
   };
@@ -97,10 +97,10 @@ export default function MyApps() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2">
-          <Boxes size={20} className="text-gray-400" /> 내 앱
+          <Boxes size={20} className="text-gray-400" /> {t('myApps')}
         </h2>
         <Link to="/apps/store" className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-          <Store size={16} /> 앱스토어
+          <Store size={16} /> {t('navStore')}
         </Link>
       </div>
 
@@ -112,14 +112,14 @@ export default function MyApps() {
 
       {!apps ? (
         <div className="text-center py-12 text-gray-500">
-          <Loader2 className="animate-spin inline mr-2" /> 불러오는 중...
+          <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
         </div>
       ) : apps.length === 0 ? (
         <div className="bg-white rounded-xl shadow-lg p-10 text-center text-gray-500">
           <Boxes size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="mb-4">설치된 앱이 없습니다.</p>
+          <p className="mb-4">{t('noApps')}</p>
           <Link to="/apps/store" className="inline-flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-            <Store size={16} /> 앱스토어에서 둘러보기
+            <Store size={16} /> {t('browseStore')}
           </Link>
         </div>
       ) : (
@@ -139,25 +139,25 @@ export default function MyApps() {
                 {running && app.web_ui_port && (
                   <button onClick={() => openApp(app)}
                     className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">
-                    <ExternalLink size={15} /> 열기
+                    <ExternalLink size={15} /> {t('open')}
                   </button>
                 )}
                 {running ? (
-                  <button onClick={() => action(app.id, 'stop')} disabled={isBusy} title="중지"
+                  <button onClick={() => action(app.id, 'stop')} disabled={isBusy} title={t('stop')}
                     className="flex items-center justify-center px-3 py-2 rounded-lg border text-gray-600 hover:bg-gray-100 disabled:opacity-50">
                     {isBusy ? <Loader2 size={15} className="animate-spin" /> : <Square size={15} />}
                   </button>
                 ) : (
-                  <button onClick={() => action(app.id, 'start')} disabled={isBusy} title="시작"
+                  <button onClick={() => action(app.id, 'start')} disabled={isBusy} title={t('start')}
                     className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50">
-                    {isBusy ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />} 시작
+                    {isBusy ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />} {t('start')}
                   </button>
                 )}
-                <button onClick={() => action(app.id, 'restart')} disabled={isBusy} title="재시작"
+                <button onClick={() => action(app.id, 'restart')} disabled={isBusy} title={t('restart')}
                   className="flex items-center justify-center px-3 py-2 rounded-lg border text-gray-600 hover:bg-gray-100 disabled:opacity-50">
                   <RotateCw size={15} />
                 </button>
-                <button onClick={() => uninstall(app)} disabled={isBusy} title="삭제"
+                <button onClick={() => uninstall(app)} disabled={isBusy} title={t('deleteLabel')}
                   className="flex items-center justify-center px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50">
                   <Trash2 size={15} />
                 </button>

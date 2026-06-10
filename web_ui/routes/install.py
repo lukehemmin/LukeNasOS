@@ -21,8 +21,9 @@ def get_disks():
 def start_install():
     data = request.json
     target_disk = data.get('disk')
+    # 언어·시간대·NAS 이름은 설치 후 첫 부팅의 셋업 과정에서 설정한다 (설치는 영어 전용).
     hostname = data.get('hostname', 'lukenasos')
-    
+
     if not target_disk:
         return jsonify({'success': False, 'message': 'Disk is required'}), 400
 

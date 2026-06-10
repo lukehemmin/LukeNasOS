@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Server, LogOut, LayoutDashboard, Boxes, Store } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 // 인증된 영역 공통 셸: 상단 헤더(호스트명·버전·로그아웃) + 탭 내비.
 // 각 페이지(Dashboard/MyApps/AppStore)는 본문만 렌더한다.
 export default function Layout() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [info, setInfo] = useState<{ hostname?: string; version?: string; active_slot?: string }>({});
 
@@ -39,7 +41,7 @@ export default function Layout() {
               </span>
             )}
             <button onClick={logout} className="flex items-center gap-1 text-sm bg-blue-700 hover:bg-blue-800 px-3 py-1.5 rounded-lg">
-              <LogOut size={16} /> 로그아웃
+              <LogOut size={16} /> {t('logout')}
             </button>
           </div>
         </div>
@@ -47,9 +49,9 @@ export default function Layout() {
 
       <nav className="bg-white border-b shadow-sm">
         <div className="max-w-5xl mx-auto px-4 py-2 flex gap-2">
-          <NavLink to="/" end className={tab}><LayoutDashboard size={16} /> 대시보드</NavLink>
-          <NavLink to="/apps" end className={tab}><Boxes size={16} /> 앱</NavLink>
-          <NavLink to="/apps/store" className={tab}><Store size={16} /> 앱스토어</NavLink>
+          <NavLink to="/" end className={tab}><LayoutDashboard size={16} /> {t('navDashboard')}</NavLink>
+          <NavLink to="/apps" end className={tab}><Boxes size={16} /> {t('navApps')}</NavLink>
+          <NavLink to="/apps/store" className={tab}><Store size={16} /> {t('navStore')}</NavLink>
         </div>
       </nav>
 

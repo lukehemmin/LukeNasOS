@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, session, redirec
 from werkzeug.security import generate_password_hash, check_password_hash
 import subprocess
 from utils.logger import logger
+from utils.system_settings import apply_timezone
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -23,10 +24,12 @@ def setup():
         data = request.get_json()
         username = data.get('username')
         password = data.get('password')
-        hostname = data.get('hostname', 'lukenas')
+        hostname = data.get('hostname', 'lukenasos')
+        language = data.get('language', 'en')
+        timezone = data.get('timezone')
 
         if not username or not password:
-            return jsonify({'status': 'error', 'message': 'ID와 비밀번호는 필수입니다.'}), 400
+            return jsonify({'status': 'error', 'message': 'ID and password are required.'}), 400
 
         try:
             # 1. Web Admin 계정 생성 (config에 저장)
@@ -44,6 +47,13 @@ def setup():
                 config.set('hostname', hostname)
             except Exception as e:
                 logger.warning(f"Failed to set hostname: {e}")
+
+            # 2.5 언어/시간대 저장 (NAS-DATA 의 settings.json → 재부팅·A/B 업데이트에도 영속).
+            #  시간대는 OS 에도 즉시 적용하고, 이후 부팅마다 app 시작 시 재적용된다.
+            config.set('language', language)
+            if timezone:
+                config.set('timezone', timezone)
+                apply_timezone(timezone)  # 실패해도 셋업은 계속 (경고 로그만)
 
             # 3. 설정 완료 플래그 저장
             config.set('setup_completed', True)

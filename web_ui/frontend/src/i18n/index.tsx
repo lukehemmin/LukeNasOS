@@ -1,0 +1,617 @@
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useCallback, useContext, useState, ReactNode } from 'react';
+
+// 운영 UI(Setup/Login/Dashboard/MyApps/AppStore) 공용 i18n.
+// 언어는 셋업 과정에서 선택되어 백엔드 settings.json 에 저장되고,
+// App 이 /api/system/status 의 language 로 복원한다. 기본값은 영어.
+// 설치 마법사(Installer)는 영어 전용이라 이 모듈을 쓰지 않는다.
+
+export type Lang = 'en' | 'ko' | 'ja' | 'zh' | 'de' | 'es' | 'fr';
+
+export const LANGUAGES: { code: Lang; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: 'ko', label: '한국어' },
+  { code: 'ja', label: '日本語' },
+  { code: 'zh', label: '简体中文' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'es', label: 'Español' },
+  { code: 'fr', label: 'Français' },
+];
+
+// Intl 날짜/시각 포맷에 쓰는 로케일 태그
+export const LOCALE: Record<Lang, string> = {
+  en: 'en-US',
+  ko: 'ko-KR',
+  ja: 'ja-JP',
+  zh: 'zh-CN',
+  de: 'de-DE',
+  es: 'es-ES',
+  fr: 'fr-FR',
+};
+
+const en = {
+  // 언어·시간대 선택 (셋업 1단계)
+  localeTitle: 'Language & Time Zone',
+  localeSubtitle: 'Choose your preferred language and time zone. The language applies immediately.',
+  languageLabel: 'Language',
+  timezoneLabel: 'Time zone',
+  currentTime: 'Current time',
+  nextBtn: 'Next',
+  backBtn: 'Back',
+
+  // 셋업 (계정 단계)
+  setupTitle: 'LukeNasOS Initial Setup',
+  accountIntro: 'Create an administrator account to get started.',
+  adminId: 'Administrator ID',
+  passwordLabel: 'Password',
+  passwordConfirm: 'Confirm password',
+  hostnameLabel: 'NAS Name (Hostname)',
+  finishBtn: 'Finish setup & start',
+  errRequired: 'Administrator ID and password are required.',
+  errPwMismatch: 'Passwords do not match.',
+
+  // 로그인
+  loginTitle: 'LukeNasOS Login',
+  loginId: 'Username',
+  loginBtn: 'Sign in',
+  errLoginRequired: 'Enter your username and password.',
+  errLoginFailed: 'Incorrect username or password.',
+
+  // 공통 셸 (헤더/내비)
+  logout: 'Log out',
+  navDashboard: 'Dashboard',
+  navApps: 'Apps',
+  navStore: 'App Store',
+
+  // 대시보드
+  sysStatus: 'System Status',
+  loading: 'Loading...',
+  memory: 'Memory',
+  sysDisk: 'System disk',
+  sysFreeFmt: 'System: {free} / {total} free',
+  dataFreeFmt: 'Data: {free} / {total} free',
+  sysUpdate: 'System Update',
+  uploadingMsg: 'Uploading...',
+  updateSuccessNote: 'The new version will boot after a reboot.',
+  installUpdateBtn: 'Install update',
+  updateHintFmt: 'Upload a signed .raucb bundle to install it to the inactive slot ({slot}).',
+  rebootRow: 'Reboot system',
+  rebootBtn: 'Reboot',
+  confirmReboot: 'Reboot the system?',
+  rebootingMsg: 'Rebooting...',
+  errRebootPrefix: 'Reboot failed: ',
+  errStatus: 'Failed to load system status.',
+  errUpdateStart: 'Failed to start the update.',
+
+  // 내 앱
+  myApps: 'My Apps',
+  errApps: 'Failed to load app list.',
+  noApps: 'No apps installed.',
+  browseStore: 'Browse the App Store',
+  running: 'Running',
+  stopped: 'Stopped',
+  open: 'Open',
+  start: 'Start',
+  stop: 'Stop',
+  restart: 'Restart',
+  deleteLabel: 'Delete',
+  errActionPrefix: 'Action failed: ',
+  errDeletePrefix: 'Delete failed: ',
+  confirmUninstallFmt: "Delete app '{name}'?",
+  confirmDeleteData: "Also permanently delete the app's data (files)?\n\nOK = delete data too\nCancel = keep data (restored on reinstall)",
+
+  // 앱스토어
+  errStore: 'Failed to load the App Store.',
+  installed: 'Installed',
+  install: 'Install',
+  installTitleFmt: 'Install {name}',
+  preparing: 'Preparing installation...',
+  installSuccessNote: 'Going to My Apps...',
+  dataFreeLabel: 'Free data space:',
+  portHint: 'The web port must not conflict with other apps or the system (80, 443, 22, etc. are unavailable).',
+  cancelBtn: 'Cancel',
+  errInstallStart: 'Failed to start installation',
+};
+
+export type MsgKey = keyof typeof en;
+type Messages = Record<MsgKey, string>;
+
+const ko: Messages = {
+  localeTitle: '언어 및 시간대',
+  localeSubtitle: '사용할 언어와 시간대를 선택하세요. 언어는 즉시 적용됩니다.',
+  languageLabel: '언어',
+  timezoneLabel: '시간대',
+  currentTime: '현재 시각',
+  nextBtn: '다음',
+  backBtn: '이전',
+
+  setupTitle: 'LukeNasOS 초기 설정',
+  accountIntro: '관리자 계정을 만들어 시스템을 시작하세요.',
+  adminId: '관리자 ID',
+  passwordLabel: '비밀번호',
+  passwordConfirm: '비밀번호 확인',
+  hostnameLabel: 'NAS 이름 (Hostname)',
+  finishBtn: '설정 완료 및 시작',
+  errRequired: '관리자 ID와 비밀번호는 필수입니다.',
+  errPwMismatch: '비밀번호가 일치하지 않습니다.',
+
+  loginTitle: 'LukeNasOS 로그인',
+  loginId: '아이디',
+  loginBtn: '로그인',
+  errLoginRequired: '아이디와 비밀번호를 입력하세요.',
+  errLoginFailed: '아이디 또는 비밀번호가 잘못되었습니다.',
+
+  logout: '로그아웃',
+  navDashboard: '대시보드',
+  navApps: '앱',
+  navStore: '앱스토어',
+
+  sysStatus: '시스템 상태',
+  loading: '불러오는 중...',
+  memory: '메모리',
+  sysDisk: '시스템 디스크',
+  sysFreeFmt: '시스템: {free} / {total} 여유',
+  dataFreeFmt: '데이터: {free} / {total} 여유',
+  sysUpdate: '시스템 업데이트',
+  uploadingMsg: '업로드 중...',
+  updateSuccessNote: '재부팅 후 새 버전으로 부팅됩니다.',
+  installUpdateBtn: '업데이트 설치',
+  updateHintFmt: '서명된 .raucb 번들을 업로드하면 비활성 슬롯({slot})에 설치됩니다.',
+  rebootRow: '시스템 재부팅',
+  rebootBtn: '재부팅',
+  confirmReboot: '시스템을 재부팅하시겠습니까?',
+  rebootingMsg: '재부팅 중입니다...',
+  errRebootPrefix: '재부팅 실패: ',
+  errStatus: '시스템 상태를 불러오지 못했습니다.',
+  errUpdateStart: '업데이트 시작에 실패했습니다.',
+
+  myApps: '내 앱',
+  errApps: '앱 목록을 불러오지 못했습니다.',
+  noApps: '설치된 앱이 없습니다.',
+  browseStore: '앱스토어에서 둘러보기',
+  running: '실행 중',
+  stopped: '중지됨',
+  open: '열기',
+  start: '시작',
+  stop: '중지',
+  restart: '재시작',
+  deleteLabel: '삭제',
+  errActionPrefix: '작업 실패: ',
+  errDeletePrefix: '삭제 실패: ',
+  confirmUninstallFmt: "'{name}' 앱을 삭제하시겠습니까?",
+  confirmDeleteData: '앱 데이터(파일)도 영구 삭제할까요?\n\n확인 = 데이터까지 삭제\n취소 = 데이터는 보존(재설치 시 복원)',
+
+  errStore: '앱스토어를 불러오지 못했습니다.',
+  installed: '설치됨',
+  install: '설치',
+  installTitleFmt: '{name} 설치',
+  preparing: '설치 준비 중...',
+  installSuccessNote: '내 앱으로 이동합니다...',
+  dataFreeLabel: '데이터 여유 공간:',
+  portHint: '웹 포트는 다른 앱·시스템과 겹치지 않아야 합니다(80·443·22 등은 사용 불가).',
+  cancelBtn: '취소',
+  errInstallStart: '설치 시작 실패',
+};
+
+const ja: Messages = {
+  localeTitle: '言語とタイムゾーン',
+  localeSubtitle: '使用する言語とタイムゾーンを選択してください。言語はすぐに反映されます。',
+  languageLabel: '言語',
+  timezoneLabel: 'タイムゾーン',
+  currentTime: '現在時刻',
+  nextBtn: '次へ',
+  backBtn: '戻る',
+
+  setupTitle: 'LukeNasOS 初期設定',
+  accountIntro: '管理者アカウントを作成してシステムを開始しましょう。',
+  adminId: '管理者 ID',
+  passwordLabel: 'パスワード',
+  passwordConfirm: 'パスワード(確認)',
+  hostnameLabel: 'NAS 名 (ホスト名)',
+  finishBtn: '設定を完了して開始',
+  errRequired: '管理者 ID とパスワードは必須です。',
+  errPwMismatch: 'パスワードが一致しません。',
+
+  loginTitle: 'LukeNasOS ログイン',
+  loginId: 'ユーザー名',
+  loginBtn: 'ログイン',
+  errLoginRequired: 'ユーザー名とパスワードを入力してください。',
+  errLoginFailed: 'ユーザー名またはパスワードが正しくありません。',
+
+  logout: 'ログアウト',
+  navDashboard: 'ダッシュボード',
+  navApps: 'アプリ',
+  navStore: 'アプリストア',
+
+  sysStatus: 'システム状態',
+  loading: '読み込み中...',
+  memory: 'メモリ',
+  sysDisk: 'システムディスク',
+  sysFreeFmt: 'システム: {free} / {total} 空き',
+  dataFreeFmt: 'データ: {free} / {total} 空き',
+  sysUpdate: 'システムアップデート',
+  uploadingMsg: 'アップロード中...',
+  updateSuccessNote: '再起動後に新しいバージョンで起動します。',
+  installUpdateBtn: 'アップデートをインストール',
+  updateHintFmt: '署名済み .raucb バンドルをアップロードすると、非アクティブスロット({slot})にインストールされます。',
+  rebootRow: 'システムの再起動',
+  rebootBtn: '再起動',
+  confirmReboot: 'システムを再起動しますか?',
+  rebootingMsg: '再起動しています...',
+  errRebootPrefix: '再起動に失敗しました: ',
+  errStatus: 'システム状態を取得できませんでした。',
+  errUpdateStart: 'アップデートの開始に失敗しました。',
+
+  myApps: 'マイアプリ',
+  errApps: 'アプリ一覧を取得できませんでした。',
+  noApps: 'インストール済みのアプリはありません。',
+  browseStore: 'アプリストアを見る',
+  running: '実行中',
+  stopped: '停止中',
+  open: '開く',
+  start: '開始',
+  stop: '停止',
+  restart: '再起動',
+  deleteLabel: '削除',
+  errActionPrefix: '操作に失敗しました: ',
+  errDeletePrefix: '削除に失敗しました: ',
+  confirmUninstallFmt: "アプリ「{name}」を削除しますか?",
+  confirmDeleteData: 'アプリのデータ(ファイル)も完全に削除しますか?\n\nOK = データも削除\nキャンセル = データは保持(再インストール時に復元)',
+
+  errStore: 'アプリストアを読み込めませんでした。',
+  installed: 'インストール済み',
+  install: 'インストール',
+  installTitleFmt: '{name} のインストール',
+  preparing: 'インストールを準備しています...',
+  installSuccessNote: 'マイアプリに移動します...',
+  dataFreeLabel: 'データ空き容量:',
+  portHint: 'ウェブポートは他のアプリやシステムと重複しないようにしてください(80・443・22 などは使用不可)。',
+  cancelBtn: 'キャンセル',
+  errInstallStart: 'インストールの開始に失敗しました',
+};
+
+const zh: Messages = {
+  localeTitle: '语言和时区',
+  localeSubtitle: '请选择您的语言和时区,语言将立即生效。',
+  languageLabel: '语言',
+  timezoneLabel: '时区',
+  currentTime: '当前时间',
+  nextBtn: '下一步',
+  backBtn: '上一步',
+
+  setupTitle: 'LukeNasOS 初始设置',
+  accountIntro: '创建管理员账户以开始使用系统。',
+  adminId: '管理员 ID',
+  passwordLabel: '密码',
+  passwordConfirm: '确认密码',
+  hostnameLabel: 'NAS 名称(主机名)',
+  finishBtn: '完成设置并开始',
+  errRequired: '管理员 ID 和密码为必填项。',
+  errPwMismatch: '两次输入的密码不一致。',
+
+  loginTitle: 'LukeNasOS 登录',
+  loginId: '用户名',
+  loginBtn: '登录',
+  errLoginRequired: '请输入用户名和密码。',
+  errLoginFailed: '用户名或密码错误。',
+
+  logout: '退出登录',
+  navDashboard: '仪表盘',
+  navApps: '应用',
+  navStore: '应用商店',
+
+  sysStatus: '系统状态',
+  loading: '加载中...',
+  memory: '内存',
+  sysDisk: '系统磁盘',
+  sysFreeFmt: '系统:{free} / {total} 可用',
+  dataFreeFmt: '数据:{free} / {total} 可用',
+  sysUpdate: '系统更新',
+  uploadingMsg: '上传中...',
+  updateSuccessNote: '重启后将启动新版本。',
+  installUpdateBtn: '安装更新',
+  updateHintFmt: '上传已签名的 .raucb 包后,将安装到非活动槽位({slot})。',
+  rebootRow: '重启系统',
+  rebootBtn: '重启',
+  confirmReboot: '确定要重启系统吗?',
+  rebootingMsg: '正在重启...',
+  errRebootPrefix: '重启失败:',
+  errStatus: '无法加载系统状态。',
+  errUpdateStart: '启动更新失败。',
+
+  myApps: '我的应用',
+  errApps: '无法加载应用列表。',
+  noApps: '尚未安装任何应用。',
+  browseStore: '前往应用商店',
+  running: '运行中',
+  stopped: '已停止',
+  open: '打开',
+  start: '启动',
+  stop: '停止',
+  restart: '重启',
+  deleteLabel: '删除',
+  errActionPrefix: '操作失败:',
+  errDeletePrefix: '删除失败:',
+  confirmUninstallFmt: '确定删除应用"{name}"吗?',
+  confirmDeleteData: '是否同时永久删除应用数据(文件)?\n\n确定 = 连数据一起删除\n取消 = 保留数据(重新安装时恢复)',
+
+  errStore: '无法加载应用商店。',
+  installed: '已安装',
+  install: '安装',
+  installTitleFmt: '安装 {name}',
+  preparing: '正在准备安装...',
+  installSuccessNote: '即将前往我的应用...',
+  dataFreeLabel: '数据可用空间:',
+  portHint: '网页端口不得与其他应用或系统冲突(80、443、22 等不可用)。',
+  cancelBtn: '取消',
+  errInstallStart: '启动安装失败',
+};
+
+const de: Messages = {
+  localeTitle: 'Sprache & Zeitzone',
+  localeSubtitle: 'Wählen Sie Sprache und Zeitzone. Die Sprache wird sofort übernommen.',
+  languageLabel: 'Sprache',
+  timezoneLabel: 'Zeitzone',
+  currentTime: 'Aktuelle Uhrzeit',
+  nextBtn: 'Weiter',
+  backBtn: 'Zurück',
+
+  setupTitle: 'LukeNasOS-Ersteinrichtung',
+  accountIntro: 'Erstellen Sie ein Administratorkonto, um zu beginnen.',
+  adminId: 'Administrator-ID',
+  passwordLabel: 'Passwort',
+  passwordConfirm: 'Passwort bestätigen',
+  hostnameLabel: 'NAS-Name (Hostname)',
+  finishBtn: 'Einrichtung abschließen & starten',
+  errRequired: 'Administrator-ID und Passwort sind erforderlich.',
+  errPwMismatch: 'Die Passwörter stimmen nicht überein.',
+
+  loginTitle: 'LukeNasOS-Anmeldung',
+  loginId: 'Benutzername',
+  loginBtn: 'Anmelden',
+  errLoginRequired: 'Geben Sie Benutzername und Passwort ein.',
+  errLoginFailed: 'Benutzername oder Passwort falsch.',
+
+  logout: 'Abmelden',
+  navDashboard: 'Dashboard',
+  navApps: 'Apps',
+  navStore: 'App Store',
+
+  sysStatus: 'Systemstatus',
+  loading: 'Wird geladen...',
+  memory: 'Arbeitsspeicher',
+  sysDisk: 'Systemfestplatte',
+  sysFreeFmt: 'System: {free} / {total} frei',
+  dataFreeFmt: 'Daten: {free} / {total} frei',
+  sysUpdate: 'Systemupdate',
+  uploadingMsg: 'Wird hochgeladen...',
+  updateSuccessNote: 'Nach einem Neustart startet die neue Version.',
+  installUpdateBtn: 'Update installieren',
+  updateHintFmt: 'Laden Sie ein signiertes .raucb-Bundle hoch, um es im inaktiven Slot ({slot}) zu installieren.',
+  rebootRow: 'System neu starten',
+  rebootBtn: 'Neu starten',
+  confirmReboot: 'System wirklich neu starten?',
+  rebootingMsg: 'Neustart läuft...',
+  errRebootPrefix: 'Neustart fehlgeschlagen: ',
+  errStatus: 'Systemstatus konnte nicht geladen werden.',
+  errUpdateStart: 'Update konnte nicht gestartet werden.',
+
+  myApps: 'Meine Apps',
+  errApps: 'App-Liste konnte nicht geladen werden.',
+  noApps: 'Keine Apps installiert.',
+  browseStore: 'App Store durchstöbern',
+  running: 'Läuft',
+  stopped: 'Gestoppt',
+  open: 'Öffnen',
+  start: 'Starten',
+  stop: 'Stoppen',
+  restart: 'Neu starten',
+  deleteLabel: 'Löschen',
+  errActionPrefix: 'Aktion fehlgeschlagen: ',
+  errDeletePrefix: 'Löschen fehlgeschlagen: ',
+  confirmUninstallFmt: "App '{name}' löschen?",
+  confirmDeleteData: 'Auch die App-Daten (Dateien) dauerhaft löschen?\n\nOK = Daten ebenfalls löschen\nAbbrechen = Daten behalten (bei Neuinstallation wiederhergestellt)',
+
+  errStore: 'App Store konnte nicht geladen werden.',
+  installed: 'Installiert',
+  install: 'Installieren',
+  installTitleFmt: '{name} installieren',
+  preparing: 'Installation wird vorbereitet...',
+  installSuccessNote: 'Weiter zu Meine Apps...',
+  dataFreeLabel: 'Freier Datenspeicher:',
+  portHint: 'Der Webport darf nicht mit anderen Apps oder dem System kollidieren (80, 443, 22 usw. sind nicht verfügbar).',
+  cancelBtn: 'Abbrechen',
+  errInstallStart: 'Installation konnte nicht gestartet werden',
+};
+
+const es: Messages = {
+  localeTitle: 'Idioma y zona horaria',
+  localeSubtitle: 'Elija su idioma y zona horaria. El idioma se aplica de inmediato.',
+  languageLabel: 'Idioma',
+  timezoneLabel: 'Zona horaria',
+  currentTime: 'Hora actual',
+  nextBtn: 'Siguiente',
+  backBtn: 'Atrás',
+
+  setupTitle: 'Configuración inicial de LukeNasOS',
+  accountIntro: 'Cree una cuenta de administrador para comenzar.',
+  adminId: 'ID de administrador',
+  passwordLabel: 'Contraseña',
+  passwordConfirm: 'Confirmar contraseña',
+  hostnameLabel: 'Nombre del NAS (hostname)',
+  finishBtn: 'Finalizar configuración e iniciar',
+  errRequired: 'El ID de administrador y la contraseña son obligatorios.',
+  errPwMismatch: 'Las contraseñas no coinciden.',
+
+  loginTitle: 'Inicio de sesión de LukeNasOS',
+  loginId: 'Usuario',
+  loginBtn: 'Iniciar sesión',
+  errLoginRequired: 'Introduzca su usuario y contraseña.',
+  errLoginFailed: 'Usuario o contraseña incorrectos.',
+
+  logout: 'Cerrar sesión',
+  navDashboard: 'Panel',
+  navApps: 'Aplicaciones',
+  navStore: 'Tienda de apps',
+
+  sysStatus: 'Estado del sistema',
+  loading: 'Cargando...',
+  memory: 'Memoria',
+  sysDisk: 'Disco del sistema',
+  sysFreeFmt: 'Sistema: {free} / {total} libres',
+  dataFreeFmt: 'Datos: {free} / {total} libres',
+  sysUpdate: 'Actualización del sistema',
+  uploadingMsg: 'Subiendo...',
+  updateSuccessNote: 'La nueva versión se iniciará tras un reinicio.',
+  installUpdateBtn: 'Instalar actualización',
+  updateHintFmt: 'Suba un paquete .raucb firmado para instalarlo en la ranura inactiva ({slot}).',
+  rebootRow: 'Reiniciar sistema',
+  rebootBtn: 'Reiniciar',
+  confirmReboot: '¿Reiniciar el sistema?',
+  rebootingMsg: 'Reiniciando...',
+  errRebootPrefix: 'Error al reiniciar: ',
+  errStatus: 'No se pudo cargar el estado del sistema.',
+  errUpdateStart: 'No se pudo iniciar la actualización.',
+
+  myApps: 'Mis aplicaciones',
+  errApps: 'No se pudo cargar la lista de aplicaciones.',
+  noApps: 'No hay aplicaciones instaladas.',
+  browseStore: 'Explorar la tienda de apps',
+  running: 'En ejecución',
+  stopped: 'Detenida',
+  open: 'Abrir',
+  start: 'Iniciar',
+  stop: 'Detener',
+  restart: 'Reiniciar',
+  deleteLabel: 'Eliminar',
+  errActionPrefix: 'Error en la operación: ',
+  errDeletePrefix: 'Error al eliminar: ',
+  confirmUninstallFmt: "¿Eliminar la aplicación '{name}'?",
+  confirmDeleteData: '¿Eliminar también de forma permanente los datos (archivos) de la aplicación?\n\nAceptar = eliminar también los datos\nCancelar = conservar los datos (se restauran al reinstalar)',
+
+  errStore: 'No se pudo cargar la tienda de apps.',
+  installed: 'Instalada',
+  install: 'Instalar',
+  installTitleFmt: 'Instalar {name}',
+  preparing: 'Preparando la instalación...',
+  installSuccessNote: 'Yendo a Mis aplicaciones...',
+  dataFreeLabel: 'Espacio libre de datos:',
+  portHint: 'El puerto web no debe entrar en conflicto con otras aplicaciones o el sistema (80, 443, 22, etc. no están disponibles).',
+  cancelBtn: 'Cancelar',
+  errInstallStart: 'No se pudo iniciar la instalación',
+};
+
+const fr: Messages = {
+  localeTitle: 'Langue et fuseau horaire',
+  localeSubtitle: "Choisissez votre langue et votre fuseau horaire. La langue s'applique immédiatement.",
+  languageLabel: 'Langue',
+  timezoneLabel: 'Fuseau horaire',
+  currentTime: 'Heure actuelle',
+  nextBtn: 'Suivant',
+  backBtn: 'Retour',
+
+  setupTitle: 'Configuration initiale de LukeNasOS',
+  accountIntro: 'Créez un compte administrateur pour commencer.',
+  adminId: 'ID administrateur',
+  passwordLabel: 'Mot de passe',
+  passwordConfirm: 'Confirmer le mot de passe',
+  hostnameLabel: 'Nom du NAS (hostname)',
+  finishBtn: 'Terminer la configuration et démarrer',
+  errRequired: "L'ID administrateur et le mot de passe sont obligatoires.",
+  errPwMismatch: 'Les mots de passe ne correspondent pas.',
+
+  loginTitle: 'Connexion à LukeNasOS',
+  loginId: "Nom d'utilisateur",
+  loginBtn: 'Se connecter',
+  errLoginRequired: "Saisissez votre nom d'utilisateur et votre mot de passe.",
+  errLoginFailed: "Nom d'utilisateur ou mot de passe incorrect.",
+
+  logout: 'Se déconnecter',
+  navDashboard: 'Tableau de bord',
+  navApps: 'Applications',
+  navStore: 'App Store',
+
+  sysStatus: 'État du système',
+  loading: 'Chargement...',
+  memory: 'Mémoire',
+  sysDisk: 'Disque système',
+  sysFreeFmt: 'Système : {free} / {total} libres',
+  dataFreeFmt: 'Données : {free} / {total} libres',
+  sysUpdate: 'Mise à jour du système',
+  uploadingMsg: 'Téléversement...',
+  updateSuccessNote: 'La nouvelle version démarrera après un redémarrage.',
+  installUpdateBtn: 'Installer la mise à jour',
+  updateHintFmt: "Téléversez un bundle .raucb signé pour l'installer dans le slot inactif ({slot}).",
+  rebootRow: 'Redémarrer le système',
+  rebootBtn: 'Redémarrer',
+  confirmReboot: 'Redémarrer le système ?',
+  rebootingMsg: 'Redémarrage en cours...',
+  errRebootPrefix: 'Échec du redémarrage : ',
+  errStatus: "Impossible de charger l'état du système.",
+  errUpdateStart: 'Impossible de démarrer la mise à jour.',
+
+  myApps: 'Mes applications',
+  errApps: "Impossible de charger la liste des applications.",
+  noApps: 'Aucune application installée.',
+  browseStore: "Parcourir l'App Store",
+  running: 'En cours',
+  stopped: 'Arrêtée',
+  open: 'Ouvrir',
+  start: 'Démarrer',
+  stop: 'Arrêter',
+  restart: 'Redémarrer',
+  deleteLabel: 'Supprimer',
+  errActionPrefix: "Échec de l'opération : ",
+  errDeletePrefix: 'Échec de la suppression : ',
+  confirmUninstallFmt: "Supprimer l'application « {name} » ?",
+  confirmDeleteData: "Supprimer aussi définitivement les données (fichiers) de l'application ?\n\nOK = supprimer aussi les données\nAnnuler = conserver les données (restaurées à la réinstallation)",
+
+  errStore: "Impossible de charger l'App Store.",
+  installed: 'Installée',
+  install: 'Installer',
+  installTitleFmt: 'Installer {name}',
+  preparing: "Préparation de l'installation...",
+  installSuccessNote: 'Direction Mes applications...',
+  dataFreeLabel: 'Espace de données libre :',
+  portHint: "Le port web ne doit pas entrer en conflit avec d'autres applications ou le système (80, 443, 22, etc. sont indisponibles).",
+  cancelBtn: 'Annuler',
+  errInstallStart: "Impossible de démarrer l'installation",
+};
+
+const messages: Record<Lang, Messages> = { en, ko, ja, zh, de, es, fr };
+
+export function translate(lang: Lang, key: MsgKey, vars?: Record<string, string | number>): string {
+  let s = messages[lang]?.[key] ?? en[key];
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+  }
+  return s;
+}
+
+export function isLang(v: unknown): v is Lang {
+  return typeof v === 'string' && LANGUAGES.some(l => l.code === v);
+}
+
+// --- React 컨텍스트: 백엔드 settings.json 의 language 를 App 이 주입하고, 셋업에서 즉시 변경 ---
+
+interface I18nCtx {
+  lang: Lang;
+  setLang: (l: Lang) => void;
+}
+
+const Ctx = createContext<I18nCtx>({ lang: 'en', setLang: () => {} });
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLang] = useState<Lang>('en');
+  return <Ctx.Provider value={{ lang, setLang }}>{children}</Ctx.Provider>;
+}
+
+export function useI18n() {
+  const { lang, setLang } = useContext(Ctx);
+  // useCallback 으로 lang 별 안정된 참조 유지 → 페이지의 useCallback/useEffect deps 에 안전
+  const t = useCallback(
+    (key: MsgKey, vars?: Record<string, string | number>) => translate(lang, key, vars),
+    [lang],
+  );
+  return { lang, setLang, t };
+}

@@ -4,8 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   HardDrive, Server, Power, AlertCircle, AlertTriangle, CheckCircle2,
   Loader2, Check, ShieldCheck, Boxes, Globe, ArrowRight, ArrowLeft,
-  MonitorCheck, Usb, RotateCw,
+  Usb, RotateCw,
 } from 'lucide-react';
+
+// 설치 마법사는 영어 전용. 언어·시간대·NAS 이름은 설치 후 첫 부팅의 셋업 과정에서 설정한다.
 
 interface Disk {
   name: string;
@@ -15,17 +17,17 @@ interface Disk {
 
 // 설치 단계 정의 (백엔드 progress % 구간과 매핑)
 const PHASES = [
-  { label: '디스크 파티션 구성', from: 0 },
-  { label: '파일시스템 마운트', from: 30 },
-  { label: '시스템 파일 복사', from: 40 },
-  { label: '시스템 설정 구성', from: 75 },
-  { label: '복구 슬롯 준비', from: 80 },
-  { label: '부팅 이미지 최적화', from: 85 },
-  { label: '부트로더 설치', from: 90 },
-  { label: '마무리', from: 99 },
+  { label: 'Partitioning disk', from: 0 },
+  { label: 'Mounting filesystems', from: 30 },
+  { label: 'Copying system files', from: 40 },
+  { label: 'Configuring system', from: 75 },
+  { label: 'Preparing recovery slot', from: 80 },
+  { label: 'Optimizing boot image', from: 85 },
+  { label: 'Installing bootloader', from: 90 },
+  { label: 'Finishing up', from: 99 },
 ];
 
-const STEPS = ['시작', '디스크 선택', '설치', '완료'];
+const STEPS = ['Start', 'Disk', 'Install', 'Done'];
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -74,7 +76,6 @@ export default function Installer() {
   const [step, setStep] = useState(1);
   const [disks, setDisks] = useState<Disk[]>([]);
   const [selectedDisk, setSelectedDisk] = useState<string | null>(null);
-  const [hostname, setHostname] = useState('lukenasos');
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +117,7 @@ export default function Installer() {
     if (step === 2) {
       axios.get('/api/disks')
         .then(res => setDisks(res.data))
-        .catch(err => setError('디스크 목록을 불러오지 못했습니다: ' + err.message));
+        .catch(err => setError('Failed to load disk list: ' + err.message));
     }
   }, [step]);
 
@@ -150,7 +151,7 @@ export default function Installer() {
     setConfirmOpen(false);
     setError(null);
     try {
-      const res = await axios.post('/api/install/start', { disk: selectedDisk, hostname });
+      const res = await axios.post('/api/install/start', { disk: selectedDisk });
       if (res.data.success) {
         setStep(3);
       } else {
@@ -165,9 +166,9 @@ export default function Installer() {
     try {
       const res = await axios.post('/api/install/reboot');
       if (res.data.success) setRebooting(true);
-      else setError('재부팅 실패: ' + res.data.message);
+      else setError('Reboot failed: ' + res.data.message);
     } catch (e: any) {
-      setError('재부팅 실패: ' + e.message);
+      setError('Reboot failed: ' + e.message);
     }
   };
 
@@ -180,9 +181,9 @@ export default function Installer() {
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6 text-white">
             <h1 className="text-2xl font-bold flex items-center gap-3">
               <span className="bg-white/15 rounded-xl p-2"><Server size={24} /></span>
-              LukeNasOS 설치
+              Install LukeNasOS
             </h1>
-            <p className="text-blue-100 text-sm mt-1 ml-[52px]">개인 NAS 운영체제 설치 마법사</p>
+            <p className="text-blue-100 text-sm mt-1 ml-[52px]">Personal NAS operating system setup wizard</p>
           </div>
 
           <StepIndicator current={step} />
@@ -198,17 +199,17 @@ export default function Installer() {
               {step === 1 && (
                 <motion.div key="welcome" {...stepAnim} className="space-y-6">
                   <div className="text-center space-y-2">
-                    <h2 className="text-xl font-bold text-gray-900">LukeNasOS에 오신 것을 환영합니다</h2>
+                    <h2 className="text-xl font-bold text-gray-900">Welcome to LukeNasOS</h2>
                     <p className="text-gray-500 text-sm">
-                      몇 분 안에 설치가 끝납니다. 설치할 디스크만 준비해 주세요.
+                      Installation takes just a few minutes. All you need is a disk to install to.
                     </p>
                   </div>
 
                   <div className="grid gap-3">
                     {[
-                      { icon: ShieldCheck, title: 'A/B 슬롯 + 자동 롤백', desc: '업데이트가 실패해도 이전 버전으로 자동 복구됩니다.' },
-                      { icon: Boxes, title: '도커 기반 앱스토어', desc: '클릭 한 번으로 앱(컨테이너)을 설치하고 관리합니다.' },
-                      { icon: Globe, title: '어디서나 웹으로 관리', desc: '설치 후 브라우저만 있으면 모든 기능을 사용할 수 있습니다.' },
+                      { icon: ShieldCheck, title: 'A/B slots + automatic rollback', desc: 'If an update fails, the system automatically recovers to the previous version.' },
+                      { icon: Boxes, title: 'Docker-based App Store', desc: 'Install and manage apps (containers) with a single click.' },
+                      { icon: Globe, title: 'Manage from anywhere via web', desc: 'After installation, everything works right from your browser.' },
                     ].map(({ icon: Icon, title, desc }) => (
                       <div key={title} className="flex items-start gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100">
                         <span className="bg-blue-100 text-blue-600 rounded-lg p-2 shrink-0"><Icon size={20} /></span>
@@ -222,14 +223,14 @@ export default function Installer() {
 
                   <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-sm flex items-start gap-2">
                     <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                    <span>설치를 진행하면 선택한 디스크의 <b>모든 데이터가 삭제</b>됩니다.</span>
+                    <span>Installing will erase <b>ALL data</b> on the selected disk.</span>
                   </div>
 
                   <button
                     onClick={() => setStep(2)}
                     className="w-full px-6 py-3.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-colors"
                   >
-                    설치 시작 <ArrowRight size={18} />
+                    Start Installation <ArrowRight size={18} />
                   </button>
                 </motion.div>
               )}
@@ -237,14 +238,14 @@ export default function Installer() {
               {step === 2 && (
                 <motion.div key="disk" {...stepAnim} className="space-y-6">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">설치할 디스크 선택</h2>
-                    <p className="text-gray-500 text-sm mt-1">LukeNasOS가 설치될 디스크입니다. 디스크 전체가 초기화됩니다.</p>
+                    <h2 className="text-xl font-bold text-gray-900">Select Installation Disk</h2>
+                    <p className="text-gray-500 text-sm mt-1">LukeNasOS will be installed on this disk. The entire disk will be erased.</p>
                   </div>
 
                   <div className="space-y-2">
                     {disks.length === 0 ? (
                       <div className="text-center py-10 text-gray-400 text-sm">
-                        <Loader2 className="animate-spin inline mr-2" size={18} /> 디스크를 검색하는 중...
+                        <Loader2 className="animate-spin inline mr-2" size={18} /> Scanning for disks...
                       </div>
                     ) : (
                       disks.map(disk => {
@@ -265,7 +266,7 @@ export default function Installer() {
                               </span>
                               <div className="text-left">
                                 <div className="font-semibold text-gray-800 font-mono text-sm">{disk.name}</div>
-                                <div className="text-sm text-gray-500">{disk.model || '알 수 없는 모델'}</div>
+                                <div className="text-sm text-gray-500">{disk.model || 'Unknown model'}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -282,33 +283,19 @@ export default function Installer() {
                     )}
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">NAS 이름 (Hostname)</label>
-                    <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                      <MonitorCheck size={18} className="text-gray-400 shrink-0" />
-                      <input
-                        type="text"
-                        value={hostname}
-                        onChange={e => setHostname(e.target.value)}
-                        className="w-full py-2.5 outline-none text-sm bg-transparent"
-                        placeholder="lukenasos"
-                      />
-                    </div>
-                  </div>
-
                   <div className="flex justify-between pt-2">
                     <button
                       onClick={() => setStep(1)}
                       className="px-4 py-2.5 text-gray-500 hover:bg-gray-100 rounded-xl flex items-center gap-1.5 text-sm font-medium transition-colors"
                     >
-                      <ArrowLeft size={16} /> 이전
+                      <ArrowLeft size={16} /> Back
                     </button>
                     <button
                       onClick={() => setConfirmOpen(true)}
                       disabled={!selectedDisk}
                       className="px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-sm flex items-center gap-2 transition-colors"
                     >
-                      시스템 설치 <ArrowRight size={16} />
+                      Install System <ArrowRight size={16} />
                     </button>
                   </div>
                 </motion.div>
@@ -317,8 +304,8 @@ export default function Installer() {
               {step === 3 && (
                 <motion.div key="progress" {...stepAnim} className="space-y-6 py-2">
                   <div className="text-center">
-                    <h2 className="text-xl font-bold text-gray-900">시스템을 설치하는 중입니다</h2>
-                    <p className="text-gray-500 text-sm mt-1">설치가 끝날 때까지 전원을 끄지 마세요.</p>
+                    <h2 className="text-xl font-bold text-gray-900">Installing the system</h2>
+                    <p className="text-gray-500 text-sm mt-1">Do not power off until the installation is complete.</p>
                   </div>
 
                   <div>
@@ -371,15 +358,15 @@ export default function Installer() {
                   </motion.div>
 
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">설치가 완료되었습니다!</h2>
-                    <p className="text-gray-500 text-sm mt-1">이제 마지막 단계만 남았습니다.</p>
+                    <h2 className="text-2xl font-bold text-gray-900">Installation complete!</h2>
+                    <p className="text-gray-500 text-sm mt-1">Just one last step to go.</p>
                   </div>
 
                   <div className="rounded-xl border border-gray-100 bg-slate-50 p-5 text-left space-y-3">
                     {[
-                      { icon: Usb, text: '설치 미디어(USB/ISO)를 제거하세요.' },
-                      { icon: RotateCw, text: '아래 버튼으로 시스템을 재부팅하세요.' },
-                      { icon: Globe, text: '재부팅 후 같은 주소로 접속해 초기 설정을 진행하세요.' },
+                      { icon: Usb, text: 'Remove the installation media (USB/ISO).' },
+                      { icon: RotateCw, text: 'Reboot the system using the button below.' },
+                      { icon: Globe, text: 'After rebooting, open the same address to run the initial setup.' },
                     ].map(({ icon: Icon, text }, i) => (
                       <div key={i} className="flex items-center gap-3 text-sm text-gray-700">
                         <span className="bg-white border border-gray-200 rounded-lg p-1.5 text-blue-600 shrink-0"><Icon size={16} /></span>
@@ -390,14 +377,14 @@ export default function Installer() {
 
                   {rebooting ? (
                     <div className="flex items-center justify-center gap-2 text-blue-600 font-semibold py-3">
-                      <Loader2 className="animate-spin" size={20} /> 재부팅 중입니다... 잠시 후 다시 접속해 주세요.
+                      <Loader2 className="animate-spin" size={20} /> Rebooting... please reconnect shortly.
                     </div>
                   ) : (
                     <button
                       onClick={reboot}
                       className="px-8 py-3.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold flex items-center justify-center gap-2 mx-auto transition-colors"
                     >
-                      <Power size={18} /> 지금 재부팅
+                      <Power size={18} /> Reboot Now
                     </button>
                   )}
                 </motion.div>
@@ -407,7 +394,7 @@ export default function Installer() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          LukeNasOS · A/B 업데이트 · 자동 롤백 · 웹 기반 관리
+          LukeNasOS · A/B updates · Automatic rollback · Web-based management
         </p>
       </div>
 
@@ -431,18 +418,17 @@ export default function Installer() {
             >
               <div className="flex items-center gap-3">
                 <span className="bg-red-100 text-red-600 rounded-xl p-2.5 shrink-0"><AlertTriangle size={22} /></span>
-                <h3 className="text-lg font-bold text-gray-900">정말 설치할까요?</h3>
+                <h3 className="text-lg font-bold text-gray-900">Install now?</h3>
               </div>
 
               <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 text-sm space-y-1.5">
-                <div className="flex justify-between"><span className="text-gray-500">대상 디스크</span><span className="font-mono font-semibold">{selected.name}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">모델</span><span className="font-medium text-right">{selected.model || '-'}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">용량</span><span className="font-mono">{selected.size}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">NAS 이름</span><span className="font-mono">{hostname}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Target disk</span><span className="font-mono font-semibold">{selected.name}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Model</span><span className="font-medium text-right">{selected.model || '-'}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Size</span><span className="font-mono">{selected.size}</span></div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm">
-                이 디스크의 <b>모든 데이터가 영구적으로 삭제</b>됩니다. 되돌릴 수 없습니다.
+                All data on this disk will be <b>permanently erased</b>. This cannot be undone.
               </div>
 
               <div className="flex gap-3">
@@ -450,13 +436,13 @@ export default function Installer() {
                   onClick={() => setConfirmOpen(false)}
                   className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium text-sm transition-colors"
                 >
-                  취소
+                  Cancel
                 </button>
                 <button
                   onClick={startInstall}
                   className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white hover:bg-red-700 font-semibold text-sm transition-colors"
                 >
-                  디스크를 지우고 설치
+                  Erase disk and install
                 </button>
               </div>
             </motion.div>

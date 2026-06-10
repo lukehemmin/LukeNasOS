@@ -8,6 +8,7 @@ from routes.install import install_bp
 from routes.apps import apps_bp
 from utils.config_manager import ConfigManager
 from utils.logger import logger
+from utils.system_settings import apply_timezone
 
 def _read_cmdline():
     """Return the kernel command line, or '' if unreadable."""
@@ -92,6 +93,13 @@ def create_app():
         logger.info("Generated a new persistent secret_key.")
     app.secret_key = secret_key
 
+    # 저장된 시간대를 시작 시 재적용 — A/B 업데이트로 새 슬롯의 /etc 가 번들 기본값으로
+    # 돌아가도 NAS-DATA(settings.json)의 설정이 항상 이긴다. 설치/복구 모드에서는 건드리지 않음.
+    if not app.config['IS_INSTALLER_MODE']:
+        saved_tz = config_manager.get('timezone')
+        if saved_tz:
+            apply_timezone(saved_tz)
+
     # Register Blueprints
     app.register_blueprint(system_bp)
     app.register_blueprint(update_bp)
@@ -110,7 +118,10 @@ def create_app():
             'is_recovery_mode': app.config.get('IS_RECOVERY_MODE', False),
             'setup_completed': config.get('setup_completed', False),
             'logged_in': 'user' in session,
-            'version': app.config.get('CURRENT_VERSION', '1.0.0')
+            'version': app.config.get('CURRENT_VERSION', '1.0.0'),
+            # 셋업 때 저장된 UI 언어 — 프론트엔드가 모든 화면(로그인 포함)에 적용
+            'language': config.get('language', 'en'),
+            'timezone': config.get('timezone')
         })
 
     # SPA Catch-All Route

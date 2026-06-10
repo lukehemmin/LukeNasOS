@@ -5,6 +5,7 @@ import {
   Cpu, MemoryStick, HardDrive, Database, Power, Upload,
   Loader2, AlertCircle, RefreshCw,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface SystemStatus {
   system: string;
@@ -46,6 +47,7 @@ function UsageBar({ label, percent, icon }: { label: string; percent: number; ic
 }
 
 export default function Dashboard() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [stats, setStats] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,9 +72,9 @@ export default function Dashboard() {
       setError(null);
     } catch (err: any) {
       if (handleAuthError(err)) return;
-      setError('시스템 상태를 불러오지 못했습니다.');
+      setError(t('errStatus'));
     }
-  }, [handleAuthError]);
+  }, [handleAuthError, t]);
 
   // 시스템 상태 폴링 (5초)
   useEffect(() => {
@@ -107,7 +109,7 @@ export default function Dashboard() {
     if (!file) return;
     setError(null);
     setUploading(true);
-    setUpdate({ active_slot: '', inactive_slot: '', status: 'installing', message: '업로드 중...', progress: 0 });
+    setUpdate({ active_slot: '', inactive_slot: '', status: 'installing', message: t('uploadingMsg'), progress: 0 });
     try {
       const form = new FormData();
       form.append('update_file', file);
@@ -117,18 +119,18 @@ export default function Dashboard() {
       if (handleAuthError(err)) return;
       setUploading(false);
       setUpdate(null);
-      setError(err.response?.data?.message || '업데이트 시작에 실패했습니다.');
+      setError(err.response?.data?.message || t('errUpdateStart'));
     }
   };
 
   const reboot = async () => {
-    if (!confirm('시스템을 재부팅하시겠습니까?')) return;
+    if (!confirm(t('confirmReboot'))) return;
     try {
       await axios.post('/api/system/reboot');
-      alert('재부팅 중입니다...');
+      alert(t('rebootingMsg'));
     } catch (err: any) {
       if (handleAuthError(err)) return;
-      alert('재부팅 실패: ' + (err.response?.data?.message || err.message));
+      alert(t('errRebootPrefix') + (err.response?.data?.message || err.message));
     }
   };
 
@@ -143,23 +145,23 @@ export default function Dashboard() {
         {/* 시스템 정보 */}
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <RefreshCw size={18} className="text-gray-400" /> 시스템 상태
+            <RefreshCw size={18} className="text-gray-400" /> {t('sysStatus')}
           </h2>
           {!stats ? (
             <div className="text-center py-8 text-gray-500">
-              <Loader2 className="animate-spin inline mr-2" /> 불러오는 중...
+              <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
             </div>
           ) : (
             <div className="space-y-4">
               <UsageBar label="CPU" percent={stats.cpu_percent} icon={<Cpu size={16} />} />
-              <UsageBar label="메모리" percent={stats.memory_percent} icon={<MemoryStick size={16} />} />
-              <UsageBar label="시스템 디스크" percent={stats.disk_percent} icon={<HardDrive size={16} />} />
+              <UsageBar label={t('memory')} percent={stats.memory_percent} icon={<MemoryStick size={16} />} />
+              <UsageBar label={t('sysDisk')} percent={stats.disk_percent} icon={<HardDrive size={16} />} />
               <div className="grid grid-cols-2 gap-4 pt-2 text-sm">
                 <div className="flex items-center gap-2 text-gray-600">
-                  <HardDrive size={16} /> 시스템: {stats.disk_free} / {stats.disk_total} 여유
+                  <HardDrive size={16} /> {t('sysFreeFmt', { free: stats.disk_free, total: stats.disk_total })}
                 </div>
                 <div className="flex items-center gap-2 text-gray-600">
-                  <Database size={16} /> 데이터: {stats.data_free} / {stats.data_total} 여유
+                  <Database size={16} /> {t('dataFreeFmt', { free: stats.data_free, total: stats.data_total })}
                 </div>
               </div>
             </div>
@@ -169,7 +171,7 @@ export default function Dashboard() {
         {/* 업데이트 */}
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Upload size={18} className="text-gray-400" /> 시스템 업데이트
+            <Upload size={18} className="text-gray-400" /> {t('sysUpdate')}
           </h2>
 
           {update && update.status !== 'idle' ? (
@@ -186,7 +188,7 @@ export default function Dashboard() {
               )}
               {update.status === 'success' && (
                 <div className="p-4 bg-green-50 text-green-700 rounded-lg">
-                  {update.message} 재부팅 후 새 버전으로 부팅됩니다.
+                  {update.message} {t('updateSuccessNote')}
                 </div>
               )}
               {update.status === 'error' && (
@@ -208,20 +210,20 @@ export default function Dashboard() {
                 disabled={!file || uploading}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {uploading && <Loader2 className="animate-spin" size={16} />} 업데이트 설치
+                {uploading && <Loader2 className="animate-spin" size={16} />} {t('installUpdateBtn')}
               </button>
             </div>
           )}
           <p className="text-xs text-gray-400 mt-3">
-            서명된 <code>.raucb</code> 번들을 업로드하면 비활성 슬롯({update?.inactive_slot || 'B'})에 설치됩니다.
+            {t('updateHintFmt', { slot: update?.inactive_slot || 'B' })}
           </p>
         </div>
 
         {/* 전원 */}
         <div className="bg-white rounded-xl shadow-lg p-6 flex items-center justify-between">
-          <span className="text-gray-600">시스템 재부팅</span>
+          <span className="text-gray-600">{t('rebootRow')}</span>
           <button onClick={reboot} className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center gap-2">
-            <Power size={18} /> 재부팅
+            <Power size={18} /> {t('rebootBtn')}
           </button>
         </div>
     </div>

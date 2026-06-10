@@ -5,6 +5,7 @@ import {
   Store, Loader2, AlertCircle, CheckCircle2, X, Download, HardDrive,
 } from 'lucide-react';
 import AppCard, { AppIcon } from '../components/AppCard';
+import { useI18n } from '../i18n';
 
 interface Variable { key: string; label: string; default: any; type: 'port' | 'number' | 'string'; }
 interface CatalogApp {
@@ -24,6 +25,7 @@ interface InstallStatus {
 }
 
 export default function AppStore() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [catalog, setCatalog] = useState<CatalogApp[] | null>(null);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
@@ -55,9 +57,9 @@ export default function AppStore() {
       setError(null);
     } catch (err: any) {
       if (handleAuthError(err)) return;
-      setError('앱스토어를 불러오지 못했습니다.');
+      setError(t('errStore'));
     }
-  }, [handleAuthError]);
+  }, [handleAuthError, t]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => () => { if (poll.current) clearInterval(poll.current); }, []);
@@ -103,14 +105,14 @@ export default function AppStore() {
   const submitInstall = async () => {
     if (!modalApp) return;
     setSubmitting(true);
-    setInstall({ status: 'pulling', message: '설치 준비 중...', progress: 0, app_id: modalApp.id });
+    setInstall({ status: 'pulling', message: t('preparing'), progress: 0, app_id: modalApp.id });
     try {
       await axios.post('/api/apps/install', { app_id: modalApp.id, config: form });
       pollStatus();
     } catch (err: any) {
       if (handleAuthError(err)) return;
       setSubmitting(false);
-      setInstall({ status: 'error', message: err.response?.data?.message || '설치 시작 실패', progress: 0, app_id: modalApp.id });
+      setInstall({ status: 'error', message: err.response?.data?.message || t('errInstallStart'), progress: 0, app_id: modalApp.id });
     }
   };
 
@@ -119,7 +121,7 @@ export default function AppStore() {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold flex items-center gap-2">
-        <Store size={20} className="text-gray-400" /> 앱스토어
+        <Store size={20} className="text-gray-400" /> {t('navStore')}
       </h2>
 
       {error && (
@@ -130,7 +132,7 @@ export default function AppStore() {
 
       {!catalog ? (
         <div className="text-center py-12 text-gray-500">
-          <Loader2 className="animate-spin inline mr-2" /> 불러오는 중...
+          <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -141,12 +143,12 @@ export default function AppStore() {
                 {isInstalled ? (
                   <button disabled
                     className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-gray-100 text-gray-400 px-3 py-2 rounded-lg cursor-default">
-                    <CheckCircle2 size={15} /> 설치됨
+                    <CheckCircle2 size={15} /> {t('installed')}
                   </button>
                 ) : (
                   <button onClick={() => openModal(app)}
                     className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">
-                    <Download size={15} /> 설치
+                    <Download size={15} /> {t('install')}
                   </button>
                 )}
               </AppCard>
@@ -163,7 +165,7 @@ export default function AppStore() {
               <div className="flex items-center gap-3">
                 <AppIcon name={modalApp.icon} color={modalApp.color} size={22} />
                 <div>
-                  <h3 className="font-semibold">{modalApp.name} 설치</h3>
+                  <h3 className="font-semibold">{t('installTitleFmt', { name: modalApp.name })}</h3>
                   {modalApp.tagline && <p className="text-xs text-gray-500">{modalApp.tagline}</p>}
                 </div>
               </div>
@@ -185,7 +187,7 @@ export default function AppStore() {
                   )}
                   {install.status === 'success' && (
                     <div className="p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2">
-                      <CheckCircle2 size={20} /> {install.message} 내 앱으로 이동합니다...
+                      <CheckCircle2 size={20} /> {install.message} {t('installSuccessNote')}
                     </div>
                   )}
                   {install.status === 'error' && (
@@ -198,7 +200,7 @@ export default function AppStore() {
                 <>
                   {dataFree && (
                     <div className="text-xs text-gray-500 flex items-center gap-1.5 bg-gray-50 rounded-lg p-2">
-                      <HardDrive size={14} /> 데이터 여유 공간: {dataFree}
+                      <HardDrive size={14} /> {t('dataFreeLabel')} {dataFree}
                     </div>
                   )}
                   {(modalApp.variables || []).map(v => (
@@ -216,7 +218,7 @@ export default function AppStore() {
                     </div>
                   ))}
                   <p className="text-xs text-gray-400">
-                    웹 포트는 다른 앱·시스템과 겹치지 않아야 합니다(80·443·22 등은 사용 불가).
+                    {t('portHint')}
                   </p>
                 </>
               )}
@@ -224,10 +226,10 @@ export default function AppStore() {
 
             {!(install && install.status !== 'idle') && (
               <div className="p-5 border-t flex justify-end gap-2">
-                <button onClick={closeModal} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">취소</button>
+                <button onClick={closeModal} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">{t('cancelBtn')}</button>
                 <button onClick={submitInstall} disabled={submitting}
                   className="px-5 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                  {submitting && <Loader2 className="animate-spin" size={16} />} 설치
+                  {submitting && <Loader2 className="animate-spin" size={16} />} {t('install')}
                 </button>
               </div>
             )}
