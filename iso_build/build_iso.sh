@@ -317,6 +317,21 @@ systemctl enable lukenasos-sshkeygen.service
 EOF
 chmod +x config/hooks/normal/05-install-sshkeygen.hook.chroot
 
+# 5.78 부팅 모드 인지 (boot-mode generator)
+#  커널 cmdline 으로 installer(live)/recovery/system 모드를 판별해 /run/lukenasos/boot-mode 에
+#  기록하고, installer 모드에서는 설치본 전용 유닛(NAS-BOOT/NAS-DATA 마운트, persistence,
+#  docker 등)을 mask 한다 → live 부팅에서 90초 디바이스 대기·콘솔 에러 스팸 제거.
+echo "Setting up Boot Mode Generator..."
+if [ -f "$SCRIPT_DIR/scripts/boot-mode-generator.sh" ]; then
+    mkdir -p config/includes.chroot/usr/lib/systemd/system-generators
+    cp "$SCRIPT_DIR/scripts/boot-mode-generator.sh" \
+       config/includes.chroot/usr/lib/systemd/system-generators/lukenasos-boot-mode-generator
+    chmod +x config/includes.chroot/usr/lib/systemd/system-generators/lukenasos-boot-mode-generator
+else
+    echo "Error: Boot mode generator not found at $SCRIPT_DIR/scripts/boot-mode-generator.sh"
+    exit 1
+fi
+
 # 5.8 슬롯 비종속(slot-agnostic) /etc/fstab
 #  A/B/C 어느 슬롯으로 부팅되든 동일하게 동작해야 한다.
 #   - root(/) 은 GRUB 가 root=PARTUUID=... 로 마운트하므로 fstab 에 적지 않는다

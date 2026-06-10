@@ -25,7 +25,17 @@ class UpdateEngine:
         if os.environ.get('RAUC_SIMULATION', '0') == '1':
             logger.info("UpdateEngine initialized in SIMULATION mode (env var)")
             return True
-        
+
+        # live(설치 미디어) 부팅: A/B 슬롯 파티션이 없어 rauc 가 정상 동작할 수 없다.
+        # rauc D-Bus 대기로 웹 UI 시작이 지연되는 것도 막는다.
+        try:
+            with open('/proc/cmdline', 'r') as f:
+                if 'boot=live' in f.read():
+                    logger.info("UpdateEngine initialized in SIMULATION mode (live boot)")
+                    return True
+        except OSError:
+            pass
+
         # rauc 명령어가 없으면 시뮬레이션 모드
         if subprocess.call(['which', 'rauc'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
             logger.info("UpdateEngine initialized in SIMULATION mode (rauc not found)")
@@ -44,7 +54,8 @@ class UpdateEngine:
             return
 
         try:
-            result = subprocess.run(['rauc', 'status', '--output-format=json'], capture_output=True, text=True)
+            result = subprocess.run(['rauc', 'status', '--output-format=json'],
+                                    capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 
@@ -95,7 +106,7 @@ class UpdateEngine:
         """
         try:
             result = subprocess.run(['rauc', 'info', '--output-format=json', bundle_path],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 return None
             data = json.loads(result.stdout)
@@ -126,7 +137,8 @@ class UpdateEngine:
             return True, "capacity guard skipped (device unknown)"
 
         try:
-            slot_bytes = int(subprocess.check_output(['blockdev', '--getsize64', target_dev], text=True).strip())
+            slot_bytes = int(subprocess.check_output(['blockdev', '--getsize64', target_dev],
+                                                     text=True, timeout=10).strip())
         except Exception as e:
             logger.warning(f"blockdev failed for {target_dev}: {e}; skipping capacity guard")
             return True, "capacity guard skipped (size unknown)"

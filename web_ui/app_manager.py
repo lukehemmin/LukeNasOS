@@ -48,6 +48,14 @@ class AppManager:
         if os.environ.get('APPS_SIMULATION', '0') == '1':
             logger.info("AppManager initialized in SIMULATION mode (env var)")
             return True
+        # live(설치 미디어) 부팅: DATA 파티션이 없어 docker 데몬이 mask 된다.
+        try:
+            with open('/proc/cmdline', 'r') as f:
+                if 'boot=live' in f.read():
+                    logger.info("AppManager initialized in SIMULATION mode (live boot)")
+                    return True
+        except OSError:
+            pass
         if subprocess.call(['which', 'docker'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
             logger.info("AppManager initialized in SIMULATION mode (docker not found)")
