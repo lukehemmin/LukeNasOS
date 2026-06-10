@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd /root/LukeNasOS/web_ui && /tmp/lukenas-venv/bin/python /tmp/test_appmgr.py 2>&1\",\"timeout\":180000,\"description\":\"Run app_manager end-to-end test with real docker\"}",
-  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"/tmp/test_appmgr.py\", line 2, in <module>\n    import app_manager as am\nModuleNotFoundError: No module named 'app_manager'",
-  "timestamp": "2026-06-09T06:10:55.002Z",
+  "tool_input_preview": "{\"command\":\"B=\\\"$HOME/.claude/skills/gstack/browse/dist/browse\\\"\\n$B viewport 1280x900\\n$B goto http://127.0.0.1:8123/install\\n$B wait --networkidle 2>/dev/null || sleep 1\\n$B screenshot /tmp/installe...",
+  "error": "Exit code 1\n[browse] Starting server...\n[browse] Server failed to start:\n[browse] Failed to start: launch: Target page, context or browser has been closed\nBrowser logs:\nChromium sandboxing failed!\n================================\nTo avoid the sandboxing issue, do either of the following:\n  - (preferred): Configure your environment to support sandboxing\n  - (alternative): Launch Chromium without sandbox using 'chromiumSandbox: false' option\n================================\n\nCall log:\n\u001b[2m  - <lau...",
+  "timestamp": "2026-06-10T12:20:53.398Z",
   "retry_count": 1
 }

@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1780914810248,
+  "lastScanned": 1781086710940,
   "projectRoot": "/root/LukeNasOS",
   "techStack": {
     "languages": [],
@@ -9,7 +9,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /root/LukeNasOS\necho \"=== 1) 서명 인증서 (keyring 베이킹용) ===\"\nls -l certs/devel.cert.pem certs/devel.key 2>/dev/null || echo \"  [!] certs/ 없음 → ./generate_dev_certs.sh 필요\"\necho\necho \"=== 2) 프론트엔드 dist (웹 UI) ===\"\nls -d web_ui/frontend/dist 2>/dev/null && ls web_ui/frontend/dist | head || echo \"  [!] frontend/dist 없음 → npm run build 필요할 수 있음\"\necho\necho \"=== 3) build_iso.sh 가 참조하는 cert/frontend 경로 ===\"\ngrep -nE \"CERT_PATH=|FRONTEND_DIR=|keyring.pem\" iso_build/build_iso.sh | head\necho\necho \"=== 4) 빌드 산출물(ISO) 출력 경로 ===\"\ngrep -nE \"\\.iso|OUTPUT|binary.*iso|live-image\" iso_build/build_iso.sh | head\necho\necho \"=== 5) docker 사용 가능 여부 ===\"\ndocker --version 2>/dev/null && docker images lukenasos-builder --format '  image: {{.Repository}} ({{.Size}})' 2>/dev/null || echo \"  docker 확인 필요\"",
+    "buildCommand": null,
     "testCommand": null,
     "lintCommand": null,
     "devCommand": null,
@@ -32,84 +32,113 @@
   },
   "customNotes": [],
   "directoryMap": {
+    "certs": {
+      "path": "certs",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1781086710917,
+      "keyFiles": [
+        "devel.cert.pem",
+        "devel.key"
+      ]
+    },
     "iso_build": {
       "path": "iso_build",
       "purpose": null,
-      "fileCount": 4,
-      "lastAccessed": 1780914810226,
+      "fileCount": 6,
+      "lastAccessed": 1781086710926,
       "keyFiles": [
         "Dockerfile",
         "README.md",
         "UPDATE_MECHANISM.md",
+        "build.log",
         "build_iso.sh"
       ]
     },
     "screenshot": {
       "path": "screenshot",
       "purpose": null,
-      "fileCount": 2,
-      "lastAccessed": 1780914810235,
+      "fileCount": 13,
+      "lastAccessed": 1781086710928,
       "keyFiles": [
-        "Screenshot 2025-12-01 at 5.21.40 PM.png",
-        "Screenshot 2025-12-01 at 5.21.42 PM.png"
+        "image copy 2.png",
+        "image copy 3.png",
+        "image copy 4.png",
+        "image copy.png",
+        "image.png"
+      ]
+    },
+    "update_bundles": {
+      "path": "update_bundles",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1781086710929,
+      "keyFiles": [
+        "lukenasos-update-1.0.0.raucb"
       ]
     },
     "web_ui": {
       "path": "web_ui",
       "purpose": null,
-      "fileCount": 5,
-      "lastAccessed": 1780914810237,
+      "fileCount": 6,
+      "lastAccessed": 1781086710931,
       "keyFiles": [
         "README.md",
         "app.py",
+        "app_manager.py",
         "installer.py",
-        "requirements.txt",
-        "update_engine.py"
+        "requirements.txt"
       ]
     },
     "iso_build/scripts": {
       "path": "iso_build/scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 2,
-      "lastAccessed": 1780914810239,
+      "fileCount": 5,
+      "lastAccessed": 1781086710933,
       "keyFiles": [
-        "persistence.sh",
-        "show_banner.sh"
+        "confirm-boot.sh",
+        "console_tui.py",
+        "dashboard.sh"
+      ]
+    },
+    "iso_build/vendor": {
+      "path": "iso_build/vendor",
+      "purpose": "Third-party code",
+      "fileCount": 1,
+      "lastAccessed": 1781086710934,
+      "keyFiles": [
+        "docker-compose"
       ]
     },
     "web_ui/routes": {
       "path": "web_ui/routes",
       "purpose": "Route handlers",
-      "fileCount": 4,
-      "lastAccessed": 1780914810241,
+      "fileCount": 5,
+      "lastAccessed": 1781086710937,
       "keyFiles": [
+        "apps.py",
         "auth.py",
-        "install.py",
-        "system.py"
-      ]
-    },
-    "web_ui/utils": {
-      "path": "web_ui/utils",
-      "purpose": "Utility functions",
-      "fileCount": 2,
-      "lastAccessed": 1780914810242,
-      "keyFiles": [
-        "config_manager.py",
-        "logger.py"
+        "install.py"
       ]
     }
   },
   "hotPaths": [
     {
       "path": "web_ui/installer.py",
-      "accessCount": 21,
-      "lastAccessed": 1780984779097,
+      "accessCount": 24,
+      "lastAccessed": 1780996759169,
       "type": "file"
     },
     {
       "path": "web_ui/app.py",
-      "accessCount": 15,
-      "lastAccessed": 1780985908799,
+      "accessCount": 16,
+      "lastAccessed": 1781089939156,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/update_engine.py",
+      "accessCount": 9,
+      "lastAccessed": 1781090344102,
       "type": "file"
     },
     {
@@ -131,21 +160,21 @@
       "type": "file"
     },
     {
-      "path": "web_ui/update_engine.py",
-      "accessCount": 5,
-      "lastAccessed": 1780984150796,
+      "path": "web_ui/frontend/src/App.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1781093685677,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/src/pages/Installer.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1781094260821,
       "type": "file"
     },
     {
       "path": "web_ui/routes/auth.py",
       "accessCount": 5,
       "lastAccessed": 1780984780442,
-      "type": "file"
-    },
-    {
-      "path": "web_ui/frontend/src/App.tsx",
-      "accessCount": 5,
-      "lastAccessed": 1780985586932,
       "type": "file"
     },
     {
@@ -161,12 +190,6 @@
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/src/pages/Installer.tsx",
-      "accessCount": 3,
-      "lastAccessed": 1780981954928,
-      "type": "file"
-    },
-    {
       "path": "README.md",
       "accessCount": 3,
       "lastAccessed": 1780988147661,
@@ -174,8 +197,20 @@
     },
     {
       "path": "create_update_bundle.sh",
-      "accessCount": 2,
-      "lastAccessed": 1780926010577,
+      "accessCount": 3,
+      "lastAccessed": 1780989053959,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/src/pages/Setup.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781093695651,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/src/pages/Login.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781093695952,
       "type": "file"
     },
     {
@@ -209,27 +244,39 @@
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/src/pages/Login.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1780984780261,
-      "type": "file"
-    },
-    {
       "path": "web_ui/frontend/src/main.tsx",
       "accessCount": 2,
       "lastAccessed": 1780985515562,
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/src/pages/Setup.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1780985515738,
-      "type": "file"
-    },
-    {
       "path": "APP_FEATURE_PLAN.md",
       "accessCount": 2,
       "lastAccessed": 1780986108301,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/app_manager.py",
+      "accessCount": 2,
+      "lastAccessed": 1781090346750,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/src/index.css",
+      "accessCount": 2,
+      "lastAccessed": 1781093684953,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/tailwind.config.js",
+      "accessCount": 2,
+      "lastAccessed": 1781093685436,
+      "type": "file"
+    },
+    {
+      "path": "web_ui/frontend/src/components/Layout.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1781093696269,
       "type": "file"
     },
     {
@@ -275,12 +322,6 @@
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/src/index.css",
-      "accessCount": 1,
-      "lastAccessed": 1780981955556,
-      "type": "file"
-    },
-    {
       "path": "web_ui/frontend/tsconfig.json",
       "accessCount": 1,
       "lastAccessed": 1780981960005,
@@ -311,21 +352,9 @@
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/tailwind.config.js",
-      "accessCount": 1,
-      "lastAccessed": 1780981976448,
-      "type": "file"
-    },
-    {
       "path": "web_ui/frontend/postcss.config.js",
       "accessCount": 1,
       "lastAccessed": 1780981976652,
-      "type": "file"
-    },
-    {
-      "path": "web_ui/app_manager.py",
-      "accessCount": 1,
-      "lastAccessed": 1780985352124,
       "type": "file"
     },
     {
@@ -371,12 +400,6 @@
       "type": "file"
     },
     {
-      "path": "web_ui/frontend/src/components/Layout.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1780985600263,
-      "type": "file"
-    },
-    {
       "path": "web_ui/frontend/src/components/AppCard.tsx",
       "accessCount": 1,
       "lastAccessed": 1780985610736,
@@ -392,6 +415,12 @@
       "path": "web_ui/frontend/src/pages/AppStore.tsx",
       "accessCount": 1,
       "lastAccessed": 1780985687830,
+      "type": "file"
+    },
+    {
+      "path": "screenshot/스크린샷 2026-06-10 200918.png",
+      "accessCount": 1,
+      "lastAccessed": 1781089873887,
       "type": "file"
     }
   ],
