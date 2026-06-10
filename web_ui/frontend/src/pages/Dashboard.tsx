@@ -1,18 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import {
-  Cpu, MemoryStick, HardDrive, Database, Power, Upload,
-  Loader2, AlertCircle, RefreshCw,
+  Cpu, MemoryStick, HardDrive, Database, Store, Boxes, AlertCircle, Loader2,
 } from 'lucide-react';
+import { AppIcon } from '../components/AppCard';
 import { useI18n } from '../i18n';
 
+// 위젯 홈: 시스템 지표 위젯 + 설치된 앱 런처.
+// 업데이트·재부팅 같은 관리 작업은 설정(/settings)으로 분리되었다.
+
 interface SystemStatus {
-  system: string;
-  release: string;
-  hostname: string;
-  version: string;
-  active_slot: string;
   cpu_percent: number;
   memory_percent: number;
   disk_percent: number;
@@ -22,26 +20,31 @@ interface SystemStatus {
   data_total: string;
 }
 
-interface UpdateStatus {
-  active_slot: string;
-  inactive_slot: string;
-  status: 'idle' | 'installing' | 'success' | 'error';
-  message: string;
-  progress: number;
+interface InstalledApp {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  web_ui_port?: number;
+  web_ui_path?: string;
+  state: 'running' | 'stopped' | 'unknown' | string;
 }
 
-// 사용률 막대 (색상은 임계치에 따라)
-function UsageBar({ label, percent, icon }: { label: string; percent: number; icon: React.ReactNode }) {
-  const color = percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-blue-600';
+// 지표 위젯: 큰 퍼센트 숫자 + 임계치 색상 막대
+function StatWidget({ icon, label, percent, detail }: {
+  icon: React.ReactNode; label: string; percent: number; detail?: string;
+}) {
+  const color = percent >= 90 ? 'bg-red-400' : percent >= 70 ? 'bg-amber-400' : 'bg-blue-400';
   return (
-    <div>
-      <div className="flex items-center justify-between text-sm mb-1">
-        <span className="flex items-center gap-2 text-gray-600">{icon} {label}</span>
-        <span className="font-mono">{percent.toFixed(0)}%</span>
+    <div className="rounded-2xl bg-white/[0.06] border border-white/10 backdrop-blur p-5">
+      <div className="flex items-center gap-2 text-sm text-slate-400">{icon} {label}</div>
+      <div className="mt-2 text-3xl font-semibold text-white tabular-nums">
+        {percent.toFixed(0)}<span className="text-base font-normal text-slate-400">%</span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-        <div className={`${color} h-2.5 transition-all duration-500`} style={{ width: `${percent}%` }} />
+      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div className={`${color} h-full transition-all duration-500`} style={{ width: `${percent}%` }} />
       </div>
+      {detail && <p className="mt-2.5 text-xs text-slate-500">{detail}</p>}
     </div>
   );
 }
@@ -50,25 +53,22 @@ export default function Dashboard() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [stats, setStats] = useState<SystemStatus | null>(null);
+  const [apps, setApps] = useState<InstalledApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const updatePoll = useRef<any>(null);
 
-  // 401 이면 로그인으로 (가드와 정합)
   const handleAuthError = useCallback((err: any) => {
-    if (err?.response?.status === 401) {
-      navigate('/login');
-      return true;
-    }
+    if (err?.response?.status === 401) { navigate('/login'); return true; }
     return false;
   }, [navigate]);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await axios.get('/api/status');
-      setStats(res.data);
+      const [s, a] = await Promise.all([
+        axios.get('/api/status'),
+        axios.get('/api/apps/installed').catch(() => null), // 앱 목록 실패는 지표 표시를 막지 않는다
+      ]);
+      setStats(s.data);
+      if (a) setApps(a.data.apps);
       setError(null);
     } catch (err: any) {
       if (handleAuthError(err)) return;
@@ -76,156 +76,85 @@ export default function Dashboard() {
     }
   }, [handleAuthError, t]);
 
-  // 시스템 상태 폴링 (5초)
+  // 시스템 상태 + 앱 상태 폴링 (5초)
   useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, 5000);
+    fetchAll();
+    const id = setInterval(fetchAll, 5000);
     return () => clearInterval(id);
-  }, [fetchStatus]);
+  }, [fetchAll]);
 
-  // 업데이트 진행 폴링 (설치 중에만)
-  const pollUpdate = useCallback(() => {
-    if (updatePoll.current) clearInterval(updatePoll.current);
-    updatePoll.current = setInterval(async () => {
-      try {
-        const res = await axios.get('/api/update/status');
-        const u: UpdateStatus = res.data;
-        setUpdate(u);
-        if (u.status === 'success' || u.status === 'error') {
-          clearInterval(updatePoll.current);
-          setUploading(false);
-        }
-      } catch (err: any) {
-        if (handleAuthError(err)) return;
-        clearInterval(updatePoll.current);
-        setUploading(false);
-      }
-    }, 1000);
-  }, [handleAuthError]);
-
-  useEffect(() => () => { if (updatePoll.current) clearInterval(updatePoll.current); }, []);
-
-  const startUpdate = async () => {
-    if (!file) return;
-    setError(null);
-    setUploading(true);
-    setUpdate({ active_slot: '', inactive_slot: '', status: 'installing', message: t('uploadingMsg'), progress: 0 });
-    try {
-      const form = new FormData();
-      form.append('update_file', file);
-      await axios.post('/api/upload_update', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      pollUpdate();
-    } catch (err: any) {
-      if (handleAuthError(err)) return;
-      setUploading(false);
-      setUpdate(null);
-      setError(err.response?.data?.message || t('errUpdateStart'));
-    }
-  };
-
-  const reboot = async () => {
-    if (!confirm(t('confirmReboot'))) return;
-    try {
-      await axios.post('/api/system/reboot');
-      alert(t('rebootingMsg'));
-    } catch (err: any) {
-      if (handleAuthError(err)) return;
-      alert(t('errRebootPrefix') + (err.response?.data?.message || err.message));
+  // 실행 중이면 앱 웹 UI 를 새 탭으로, 아니면 관리 페이지(내 앱)로
+  const openApp = (app: InstalledApp) => {
+    if (app.state === 'running' && app.web_ui_port) {
+      const url = `http://${window.location.hostname}:${app.web_ui_port}${app.web_ui_path || '/'}`;
+      window.open(url, '_blank', 'noopener');
+    } else {
+      navigate('/apps');
     }
   };
 
   return (
-    <div className="space-y-6">
-        {error && (
-          <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
-            <AlertCircle size={20} /> {error}
+    <div className="space-y-8">
+      {error && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center gap-2">
+          <AlertCircle size={20} /> {error}
+        </div>
+      )}
+
+      {!stats ? (
+        <div className="text-center py-16 text-slate-500">
+          <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatWidget icon={<Cpu size={15} />} label="CPU" percent={stats.cpu_percent} />
+          <StatWidget icon={<MemoryStick size={15} />} label={t('memory')} percent={stats.memory_percent} />
+          <StatWidget icon={<HardDrive size={15} />} label={t('sysDisk')} percent={stats.disk_percent}
+            detail={`${stats.disk_free} / ${stats.disk_total}`} />
+          <div className="rounded-2xl bg-white/[0.06] border border-white/10 backdrop-blur p-5">
+            <div className="flex items-center gap-2 text-sm text-slate-400"><Database size={15} /> {t('dataDisk')}</div>
+            <div className="mt-2 text-3xl font-semibold text-white tabular-nums">{stats.data_free}</div>
+            <p className="mt-2.5 text-xs text-slate-500">/ {stats.data_total}</p>
+          </div>
+        </div>
+      )}
+
+      <section>
+        <h2 className="font-semibold text-white flex items-center gap-2 mb-4">
+          <Boxes size={18} className="text-slate-400" /> {t('myApps')}
+        </h2>
+
+        {apps && apps.length === 0 ? (
+          <div className="rounded-2xl bg-white/[0.04] border border-dashed border-white/10 p-10 text-center text-slate-500">
+            <Boxes size={36} className="mx-auto mb-3 text-slate-700" />
+            <p className="mb-4">{t('noApps')}</p>
+            <Link to="/apps/store"
+              className="inline-flex items-center gap-1.5 text-sm bg-blue-500 text-white px-4 py-2 rounded-full hover:bg-blue-400 transition-colors">
+              <Store size={15} /> {t('browseStore')}
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+            {(apps || []).map(app => (
+              <button key={app.id} onClick={() => openApp(app)} title={app.name}
+                className="rounded-2xl bg-white/[0.06] border border-white/10 backdrop-blur p-4 flex flex-col items-center gap-2.5 hover:bg-white/[0.12] transition-colors">
+                <div className="relative">
+                  <AppIcon name={app.icon} color={app.color} size={24} />
+                  <span className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-slate-950 ${
+                    app.state === 'running' ? 'bg-green-400' : 'bg-slate-600'
+                  }`} />
+                </div>
+                <span className="text-xs text-slate-300 truncate w-full text-center">{app.name}</span>
+              </button>
+            ))}
+            <Link to="/apps/store"
+              className="rounded-2xl border border-dashed border-white/15 p-4 flex flex-col items-center justify-center gap-2.5 text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors">
+              <Store size={24} />
+              <span className="text-xs">{t('navStore')}</span>
+            </Link>
           </div>
         )}
-
-        {/* 시스템 정보 */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <RefreshCw size={18} className="text-gray-400" /> {t('sysStatus')}
-          </h2>
-          {!stats ? (
-            <div className="text-center py-8 text-gray-500">
-              <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <UsageBar label="CPU" percent={stats.cpu_percent} icon={<Cpu size={16} />} />
-              <UsageBar label={t('memory')} percent={stats.memory_percent} icon={<MemoryStick size={16} />} />
-              <UsageBar label={t('sysDisk')} percent={stats.disk_percent} icon={<HardDrive size={16} />} />
-              <div className="grid grid-cols-2 gap-4 pt-2 text-sm">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <HardDrive size={16} /> {t('sysFreeFmt', { free: stats.disk_free, total: stats.disk_total })}
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Database size={16} /> {t('dataFreeFmt', { free: stats.data_free, total: stats.data_total })}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 업데이트 */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Upload size={18} className="text-gray-400" /> {t('sysUpdate')}
-          </h2>
-
-          {update && update.status !== 'idle' ? (
-            <div className="space-y-3">
-              {update.status === 'installing' && (
-                <>
-                  <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                    <div className="bg-blue-600 h-4 transition-all duration-500" style={{ width: `${update.progress}%` }} />
-                  </div>
-                  <p className="text-gray-600 font-mono text-sm flex items-center gap-2">
-                    <Loader2 className="animate-spin" size={16} /> {update.message}
-                  </p>
-                </>
-              )}
-              {update.status === 'success' && (
-                <div className="p-4 bg-green-50 text-green-700 rounded-lg">
-                  {update.message} {t('updateSuccessNote')}
-                </div>
-              )}
-              {update.status === 'error' && (
-                <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
-                  <AlertCircle size={20} /> {update.message}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <input
-                type="file"
-                accept=".raucb"
-                onChange={e => setFile(e.target.files?.[0] || null)}
-                className="flex-1 text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-              <button
-                onClick={startUpdate}
-                disabled={!file || uploading}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {uploading && <Loader2 className="animate-spin" size={16} />} {t('installUpdateBtn')}
-              </button>
-            </div>
-          )}
-          <p className="text-xs text-gray-400 mt-3">
-            {t('updateHintFmt', { slot: update?.inactive_slot || 'B' })}
-          </p>
-        </div>
-
-        {/* 전원 */}
-        <div className="bg-white rounded-xl shadow-lg p-6 flex items-center justify-between">
-          <span className="text-gray-600">{t('rebootRow')}</span>
-          <button onClick={reboot} className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium flex items-center gap-2">
-            <Power size={18} /> {t('rebootBtn')}
-          </button>
-        </div>
+      </section>
     </div>
   );
 }

@@ -120,18 +120,18 @@ export default function AppStore() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold flex items-center gap-2">
-        <Store size={20} className="text-gray-400" /> {t('navStore')}
+      <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+        <Store size={20} className="text-slate-400" /> {t('navStore')}
       </h2>
 
       {error && (
-        <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center gap-2">
           <AlertCircle size={20} /> {error}
         </div>
       )}
 
       {!catalog ? (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-slate-500">
           <Loader2 className="animate-spin inline mr-2" /> {t('loading')}
         </div>
       ) : (
@@ -142,12 +142,12 @@ export default function AppStore() {
               <AppCard key={app.id} icon={app.icon} color={app.color} title={app.name} subtitle={app.tagline}>
                 {isInstalled ? (
                   <button disabled
-                    className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-gray-100 text-gray-400 px-3 py-2 rounded-lg cursor-default">
+                    className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-white/[0.07] text-slate-500 px-3 py-2 rounded-lg cursor-default">
                     <CheckCircle2 size={15} /> {t('installed')}
                   </button>
                 ) : (
                   <button onClick={() => openModal(app)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">
+                    className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-400 transition-colors">
                     <Download size={15} /> {t('install')}
                   </button>
                 )}
@@ -159,17 +159,17 @@ export default function AppStore() {
 
       {/* 설치 모달 */}
       {modalApp && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={closeModal}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={closeModal}>
+          <div className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <AppIcon name={modalApp.icon} color={modalApp.color} size={22} />
                 <div>
-                  <h3 className="font-semibold">{t('installTitleFmt', { name: modalApp.name })}</h3>
-                  {modalApp.tagline && <p className="text-xs text-gray-500">{modalApp.tagline}</p>}
+                  <h3 className="font-semibold text-white">{t('installTitleFmt', { name: modalApp.name })}</h3>
+                  {modalApp.tagline && <p className="text-xs text-slate-400">{modalApp.tagline}</p>}
                 </div>
               </div>
-              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={closeModal} className="text-slate-500 hover:text-white"><X size={20} /></button>
             </div>
 
             <div className="p-5 space-y-4">
@@ -177,21 +177,21 @@ export default function AppStore() {
                 <div className="space-y-3">
                   {installing && (
                     <>
-                      <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                        <div className="bg-blue-600 h-4 transition-all duration-500" style={{ width: `${install.progress}%` }} />
+                      <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                        <div className="bg-blue-400 h-full transition-all duration-500" style={{ width: `${install.progress}%` }} />
                       </div>
-                      <p className="text-gray-600 font-mono text-sm flex items-center gap-2">
+                      <p className="text-slate-400 font-mono text-sm flex items-center gap-2">
                         <Loader2 className="animate-spin" size={16} /> {install.message}
                       </p>
                     </>
                   )}
                   {install.status === 'success' && (
-                    <div className="p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2">
+                    <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-300 flex items-center gap-2">
                       <CheckCircle2 size={20} /> {install.message} {t('installSuccessNote')}
                     </div>
                   )}
                   {install.status === 'error' && (
-                    <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
+                    <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 flex items-center gap-2">
                       <AlertCircle size={20} /> {install.message}
                     </div>
                   )}
@@ -199,13 +199,13 @@ export default function AppStore() {
               ) : (
                 <>
                   {dataFree && (
-                    <div className="text-xs text-gray-500 flex items-center gap-1.5 bg-gray-50 rounded-lg p-2">
+                    <div className="text-xs text-slate-400 flex items-center gap-1.5 bg-white/[0.06] rounded-lg p-2">
                       <HardDrive size={14} /> {t('dataFreeLabel')} {dataFree}
                     </div>
                   )}
                   {(modalApp.variables || []).map(v => (
                     <div key={v.key}>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{v.label}</label>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">{v.label}</label>
                       <input
                         type={v.type === 'string' ? 'text' : 'number'}
                         value={form[v.key] ?? ''}
@@ -213,11 +213,11 @@ export default function AppStore() {
                           ...f,
                           [v.key]: v.type === 'string' ? e.target.value : Number(e.target.value),
                         }))}
-                        className="w-full p-2 border rounded-lg outline-none focus:border-blue-500"
+                        className="w-full p-2 rounded-lg bg-white/[0.07] border border-white/10 text-white outline-none focus:border-blue-400/60"
                       />
                     </div>
                   ))}
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-slate-500">
                     {t('portHint')}
                   </p>
                 </>
@@ -225,10 +225,10 @@ export default function AppStore() {
             </div>
 
             {!(install && install.status !== 'idle') && (
-              <div className="p-5 border-t flex justify-end gap-2">
-                <button onClick={closeModal} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">{t('cancelBtn')}</button>
+              <div className="p-5 border-t border-white/10 flex justify-end gap-2">
+                <button onClick={closeModal} className="px-4 py-2 rounded-lg border border-white/15 text-slate-300 hover:bg-white/10 transition-colors">{t('cancelBtn')}</button>
                 <button onClick={submitInstall} disabled={submitting}
-                  className="px-5 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-5 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-50 flex items-center gap-2 transition-colors">
                   {submitting && <Loader2 className="animate-spin" size={16} />} {t('install')}
                 </button>
               </div>

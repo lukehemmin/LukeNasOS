@@ -111,6 +111,24 @@ const en = {
   portHint: 'The web port must not conflict with other apps or the system (80, 443, 22, etc. are unavailable).',
   cancelBtn: 'Cancel',
   errInstallStart: 'Failed to start installation',
+
+  // 운영 셸·설정 (다크 위젯 홈)
+  navSettings: 'Settings',
+  dataDisk: 'Data',
+  generalSection: 'General',
+  accountSection: 'Account',
+  systemSection: 'System',
+  aboutSection: 'About',
+  saveBtn: 'Save changes',
+  savedMsg: 'Settings saved.',
+  errSave: 'Failed to save settings.',
+  currentPw: 'Current password',
+  newPw: 'New password',
+  changePwBtn: 'Change password',
+  pwChangedMsg: 'Password changed.',
+  errPwChange: 'Failed to change password.',
+  versionLabel: 'Version',
+  activeSlotLabel: 'Active slot',
 };
 
 export type MsgKey = keyof typeof en;
@@ -191,6 +209,23 @@ const ko: Messages = {
   portHint: '웹 포트는 다른 앱·시스템과 겹치지 않아야 합니다(80·443·22 등은 사용 불가).',
   cancelBtn: '취소',
   errInstallStart: '설치 시작 실패',
+
+  navSettings: '설정',
+  dataDisk: '데이터',
+  generalSection: '일반',
+  accountSection: '계정',
+  systemSection: '시스템',
+  aboutSection: '정보',
+  saveBtn: '변경 사항 저장',
+  savedMsg: '설정이 저장되었습니다.',
+  errSave: '설정 저장에 실패했습니다.',
+  currentPw: '현재 비밀번호',
+  newPw: '새 비밀번호',
+  changePwBtn: '비밀번호 변경',
+  pwChangedMsg: '비밀번호가 변경되었습니다.',
+  errPwChange: '비밀번호 변경에 실패했습니다.',
+  versionLabel: '버전',
+  activeSlotLabel: '활성 슬롯',
 };
 
 const ja: Messages = {
@@ -268,6 +303,23 @@ const ja: Messages = {
   portHint: 'ウェブポートは他のアプリやシステムと重複しないようにしてください(80・443・22 などは使用不可)。',
   cancelBtn: 'キャンセル',
   errInstallStart: 'インストールの開始に失敗しました',
+
+  navSettings: '設定',
+  dataDisk: 'データ',
+  generalSection: '一般',
+  accountSection: 'アカウント',
+  systemSection: 'システム',
+  aboutSection: '情報',
+  saveBtn: '変更を保存',
+  savedMsg: '設定を保存しました。',
+  errSave: '設定の保存に失敗しました。',
+  currentPw: '現在のパスワード',
+  newPw: '新しいパスワード',
+  changePwBtn: 'パスワードを変更',
+  pwChangedMsg: 'パスワードを変更しました。',
+  errPwChange: 'パスワードの変更に失敗しました。',
+  versionLabel: 'バージョン',
+  activeSlotLabel: 'アクティブスロット',
 };
 
 const zh: Messages = {
@@ -345,6 +397,23 @@ const zh: Messages = {
   portHint: '网页端口不得与其他应用或系统冲突(80、443、22 等不可用)。',
   cancelBtn: '取消',
   errInstallStart: '启动安装失败',
+
+  navSettings: '设置',
+  dataDisk: '数据',
+  generalSection: '常规',
+  accountSection: '账户',
+  systemSection: '系统',
+  aboutSection: '关于',
+  saveBtn: '保存更改',
+  savedMsg: '设置已保存。',
+  errSave: '保存设置失败。',
+  currentPw: '当前密码',
+  newPw: '新密码',
+  changePwBtn: '修改密码',
+  pwChangedMsg: '密码已修改。',
+  errPwChange: '修改密码失败。',
+  versionLabel: '版本',
+  activeSlotLabel: '活动槽位',
 };
 
 const de: Messages = {
@@ -422,6 +491,23 @@ const de: Messages = {
   portHint: 'Der Webport darf nicht mit anderen Apps oder dem System kollidieren (80, 443, 22 usw. sind nicht verfügbar).',
   cancelBtn: 'Abbrechen',
   errInstallStart: 'Installation konnte nicht gestartet werden',
+
+  navSettings: 'Einstellungen',
+  dataDisk: 'Daten',
+  generalSection: 'Allgemein',
+  accountSection: 'Konto',
+  systemSection: 'System',
+  aboutSection: 'Info',
+  saveBtn: 'Änderungen speichern',
+  savedMsg: 'Einstellungen gespeichert.',
+  errSave: 'Einstellungen konnten nicht gespeichert werden.',
+  currentPw: 'Aktuelles Passwort',
+  newPw: 'Neues Passwort',
+  changePwBtn: 'Passwort ändern',
+  pwChangedMsg: 'Passwort geändert.',
+  errPwChange: 'Passwort konnte nicht geändert werden.',
+  versionLabel: 'Version',
+  activeSlotLabel: 'Aktiver Slot',
 };
 
 const es: Messages = {
@@ -499,6 +585,23 @@ const es: Messages = {
   portHint: 'El puerto web no debe entrar en conflicto con otras aplicaciones o el sistema (80, 443, 22, etc. no están disponibles).',
   cancelBtn: 'Cancelar',
   errInstallStart: 'No se pudo iniciar la instalación',
+
+  navSettings: 'Ajustes',
+  dataDisk: 'Datos',
+  generalSection: 'General',
+  accountSection: 'Cuenta',
+  systemSection: 'Sistema',
+  aboutSection: 'Acerca de',
+  saveBtn: 'Guardar cambios',
+  savedMsg: 'Ajustes guardados.',
+  errSave: 'No se pudieron guardar los ajustes.',
+  currentPw: 'Contraseña actual',
+  newPw: 'Nueva contraseña',
+  changePwBtn: 'Cambiar contraseña',
+  pwChangedMsg: 'Contraseña cambiada.',
+  errPwChange: 'No se pudo cambiar la contraseña.',
+  versionLabel: 'Versión',
+  activeSlotLabel: 'Ranura activa',
 };
 
 const fr: Messages = {
@@ -576,6 +679,23 @@ const fr: Messages = {
   portHint: "Le port web ne doit pas entrer en conflit avec d'autres applications ou le système (80, 443, 22, etc. sont indisponibles).",
   cancelBtn: 'Annuler',
   errInstallStart: "Impossible de démarrer l'installation",
+
+  navSettings: 'Paramètres',
+  dataDisk: 'Données',
+  generalSection: 'Général',
+  accountSection: 'Compte',
+  systemSection: 'Système',
+  aboutSection: 'À propos',
+  saveBtn: 'Enregistrer les modifications',
+  savedMsg: 'Paramètres enregistrés.',
+  errSave: "Échec de l'enregistrement des paramètres.",
+  currentPw: 'Mot de passe actuel',
+  newPw: 'Nouveau mot de passe',
+  changePwBtn: 'Changer le mot de passe',
+  pwChangedMsg: 'Mot de passe modifié.',
+  errPwChange: 'Échec du changement de mot de passe.',
+  versionLabel: 'Version',
+  activeSlotLabel: 'Slot actif',
 };
 
 const messages: Record<Lang, Messages> = { en, ko, ja, zh, de, es, fr };

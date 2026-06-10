@@ -3,6 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import subprocess
 from utils.logger import logger
 from utils.system_settings import apply_timezone
+from utils.auth import login_required
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -92,6 +93,27 @@ def login():
         else:
             logger.warning(f"Failed login attempt for user '{username}'")
             return jsonify({'status': 'error', 'message': '아이디 또는 비밀번호가 잘못되었습니다.'}), 401
+
+@auth_bp.route('/api/account/password', methods=['POST'])
+@login_required
+def change_password():
+    """관리자 비밀번호 변경 (설정 페이지). 현재 비밀번호 확인 후 해시 교체."""
+    data = request.get_json() or {}
+    current = data.get('current_password')
+    new = data.get('new_password')
+
+    if not current or not new:
+        return jsonify({'status': 'error', 'message': 'Current and new passwords are required.'}), 400
+
+    config = current_app.config['config_manager']
+    stored_hash = config.get('admin_password_hash')
+    if not stored_hash or not check_password_hash(stored_hash, current):
+        logger.warning("Password change rejected: wrong current password")
+        return jsonify({'status': 'error', 'message': 'Current password is incorrect.'}), 403
+
+    config.set('admin_password_hash', generate_password_hash(new))
+    logger.info("Admin password changed via Web UI")
+    return jsonify({'status': 'success'})
 
 @auth_bp.route('/logout')
 def logout():

@@ -5,6 +5,7 @@ import subprocess
 from update_engine import update_engine
 from utils.logger import logger
 from utils.auth import login_required
+from utils.system_settings import apply_timezone
 
 system_bp = Blueprint('system', __name__)
 
@@ -75,6 +76,48 @@ def status():
         'data_free': data_free,
         'data_total': data_total
     })
+
+@system_bp.route('/api/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    """일반 설정 조회/변경 (호스트명·언어·시간대).
+
+    셋업 때 한 번 정한 값을 운영 중에도 바꿀 수 있게 한다. 저장소는 셋업과 동일하게
+    NAS-DATA 의 settings.json (config_manager) — A/B 업데이트·재부팅에도 영속.
+    """
+    config = current_app.config['config_manager']
+
+    if request.method == 'GET':
+        return jsonify({
+            'hostname': config.get('hostname', platform.node()),
+            'language': config.get('language', 'en'),
+            'timezone': config.get('timezone'),
+        })
+
+    data = request.get_json() or {}
+    hostname = data.get('hostname')
+    language = data.get('language')
+    timezone = data.get('timezone')
+
+    if timezone and timezone != config.get('timezone'):
+        if not apply_timezone(timezone):
+            return jsonify({'status': 'error', 'message': 'Invalid timezone'}), 400
+        config.set('timezone', timezone)
+
+    if hostname and hostname != config.get('hostname'):
+        # 시스템 반영 실패(컨테이너 등)해도 표시용 설정은 저장한다 (셋업과 동일한 관용)
+        try:
+            subprocess.run(['hostnamectl', 'set-hostname', hostname],
+                           check=True, capture_output=True)
+        except Exception as e:
+            logger.warning(f"Failed to set hostname: {e}")
+        config.set('hostname', hostname)
+
+    if language:
+        config.set('language', language)
+
+    logger.info("Settings updated via Web UI")
+    return jsonify({'status': 'success'})
 
 @system_bp.route('/api/system/reboot', methods=['POST'])
 @login_required

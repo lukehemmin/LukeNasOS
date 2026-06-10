@@ -30,15 +30,15 @@ export default function AppCard({
   children?: ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-lg p-5 flex flex-col gap-4">
+    <div className="rounded-2xl bg-white/[0.06] border border-white/10 backdrop-blur p-5 flex flex-col gap-4">
       <div className="flex items-start gap-3">
         <AppIcon name={icon} color={color} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold truncate">{title}</h3>
+            <h3 className="font-semibold text-white truncate">{title}</h3>
             {badge}
           </div>
-          {subtitle && <p className="text-sm text-gray-500 line-clamp-2 mt-0.5">{subtitle}</p>}
+          {subtitle && <p className="text-sm text-slate-400 line-clamp-2 mt-0.5">{subtitle}</p>}
         </div>
       </div>
       {children && <div className="mt-auto flex items-center gap-2">{children}</div>}
