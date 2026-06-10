@@ -43,3 +43,4 @@ coverage/
 .eslintcache
 screenshots/
 screenshot/
+.gstack/
