@@ -5,7 +5,7 @@ import subprocess
 from update_engine import update_engine
 from utils.logger import logger
 from utils.auth import login_required
-from utils.system_settings import apply_timezone
+from utils.system_settings import apply_timezone, valid_hostname
 
 system_bp = Blueprint('system', __name__)
 
@@ -104,7 +104,9 @@ def settings():
             return jsonify({'status': 'error', 'message': 'Invalid timezone'}), 400
         config.set('timezone', timezone)
 
-    if hostname and hostname != config.get('hostname'):
+    if hostname is not None and hostname != config.get('hostname'):
+        if not valid_hostname(hostname):
+            return jsonify({'status': 'error', 'message': 'Invalid hostname'}), 400
         # 시스템 반영 실패(컨테이너 등)해도 표시용 설정은 저장한다 (셋업과 동일한 관용)
         try:
             subprocess.run(['hostnamectl', 'set-hostname', hostname],

@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, session, redirec
 from werkzeug.security import generate_password_hash, check_password_hash
 import subprocess
 from utils.logger import logger
-from utils.system_settings import apply_timezone
+from utils.system_settings import apply_timezone, valid_hostname
 from utils.auth import login_required
 
 auth_bp = Blueprint('auth', __name__)
@@ -31,6 +31,9 @@ def setup():
 
         if not username or not password:
             return jsonify({'status': 'error', 'message': 'ID and password are required.'}), 400
+
+        if not valid_hostname(hostname):
+            return jsonify({'status': 'error', 'message': 'Invalid hostname'}), 400
 
         try:
             # 1. Web Admin 계정 생성 (config에 저장)

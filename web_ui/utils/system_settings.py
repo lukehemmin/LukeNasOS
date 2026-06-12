@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 from utils.logger import logger
 
@@ -7,6 +8,15 @@ from utils.logger import logger
 #  - 셋업 완료 시 1회 적용
 #  - 앱 시작 시마다 재적용: A/B 업데이트로 새 슬롯의 /etc 가 번들 기본값으로 돌아가도
 #    NAS-DATA 의 설정이 항상 이긴다 (재부팅·업데이트에도 영속).
+
+# RFC 1123 단일 라벨 호스트명: 영숫자로 시작/끝, 사이에 하이픈 허용, 최대 63자.
+# 공백/빈문자열/점/특수문자를 막아 hostnamectl 에 유효하지 않은 값이 들어가지 않게 한다.
+_HOSTNAME_RE = re.compile(r'^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$')
+
+
+def valid_hostname(name):
+    """RFC 1123 단일 라벨 호스트명으로 유효한지 검증 (셋업·설정 공용)."""
+    return isinstance(name, str) and _HOSTNAME_RE.match(name) is not None
 
 
 def _valid_timezone(tz):
