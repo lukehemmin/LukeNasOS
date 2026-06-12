@@ -188,16 +188,16 @@ chmod +x config/hooks/normal/02-install-banner.hook.chroot
 # 'dashboard' 커맨드 설치: 콘솔(Alt+F2)에서 tty1 상태 화면으로 복귀.
 #  - /usr/local/bin/dashboard 로 PATH 에 올림 (kbd 없이 VT ioctl 로 전환)
 #  - 콘솔 로그인 시 복귀 방법을 안내 (/etc/profile.d)
-if [ -f "$SCRIPT_DIR/scripts/dashboard.sh" ]; then
-    cp "$SCRIPT_DIR/scripts/dashboard.sh" config/includes.chroot/opt/lukenasos/scripts/
-    chmod +x config/includes.chroot/opt/lukenasos/scripts/dashboard.sh
+if [ -f "$SCRIPT_DIR/scripts/dashboard.py" ]; then
+    cp "$SCRIPT_DIR/scripts/dashboard.py" config/includes.chroot/opt/lukenasos/scripts/
+    chmod +x config/includes.chroot/opt/lukenasos/scripts/dashboard.py
 else
-    echo "Error: dashboard script not found at $SCRIPT_DIR/scripts/dashboard.sh"
+    echo "Error: dashboard script not found at $SCRIPT_DIR/scripts/dashboard.py"
     exit 1
 fi
 
 mkdir -p config/includes.chroot/usr/local/bin
-ln -sf /opt/lukenasos/scripts/dashboard.sh config/includes.chroot/usr/local/bin/dashboard
+ln -sf /opt/lukenasos/scripts/dashboard.py config/includes.chroot/usr/local/bin/dashboard
 
 mkdir -p config/includes.chroot/etc/profile.d
 cat <<'HINT' > config/includes.chroot/etc/profile.d/99-lukenasos-dashboard-hint.sh
