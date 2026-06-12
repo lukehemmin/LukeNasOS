@@ -11,6 +11,11 @@ on:
     tags: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '버전 수동 지정 (예: 0.1.0.0) — 비우면 VERSION 파일 기반 자동 증가'
+        required: false
+        type: string
 
 # 여러 커밋을 연속 푸시해도 최신 것만 실행
 concurrency:
@@ -45,10 +50,19 @@ jobs:
           df -h /
 
       # ── 2. 체크아웃 ─────────────────────────────────────
+      #    fetch-tags: 나이틀리 빌드 번호(v{BASE}.N 태그) 계산에 전체 태그 필요
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
-      # ── 3. 부팅 모드 판별 ────────────────────────────────
+      # ── 3. 빌드 모드·버전 판별 ───────────────────────────
+      #    버전 체계 (나이틀리): {VERSION 파일의 BASE}.{빌드 번호}
+      #      - 빌드마다 v{BASE}.N 태그를 커밋에 남기고, 다음 빌드는 최대 N+1
+      #      - 개발자가 버전을 올리고 싶으면 VERSION 파일을 수정해 커밋
+      #        (예: 0.0.0 → 0.1.0 이면 다음 나이틀리가 0.1.0.0 부터 다시 시작)
+      #      - 수동 실행(workflow_dispatch)의 version 입력으로 일회성 강제 지정 가능
+      #    개발자가 직접 푸시한 태그는 기존대로 정식 릴리즈.
       - name: Determine build context
         id: meta
         run: |
@@ -59,11 +73,33 @@ jobs:
             V="${{ github.ref_name }}"
             echo "version=${V#v}" >> "$GITHUB_OUTPUT"
             echo "🏷️  Mode: Release (${{ github.ref_name }})"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # PR 검증 빌드: 릴리즈를 만들지 않으므로 빌드 번호를 소비하지 않는다
+            echo "mode=nightly" >> "$GITHUB_OUTPUT"
+            echo "tag_name=nightly" >> "$GITHUB_OUTPUT"
+            echo "version=pr-$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+            echo "🔍 Mode: PR validation (no release)"
           else
             echo "mode=nightly" >> "$GITHUB_OUTPUT"
             echo "tag_name=nightly" >> "$GITHUB_OUTPUT"
-            echo "version=nightly-$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
-            echo "🌙 Mode: Nightly (nightly-$(echo '${{ github.sha }}' | cut -c1-7))"
+
+            MANUAL="${{ github.event.inputs.version }}"
+            if [ -n "$MANUAL" ]; then
+              VER="$MANUAL"
+              echo "✍️  Manual version override: $VER"
+            else
+              BASE=$(tr -d '[:space:]' < VERSION)
+              if ! echo "$BASE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "::error::VERSION must be MAJOR.MINOR.PATCH (got: '$BASE')"
+                exit 1
+              fi
+              LAST=$(git tag -l "v${BASE}.*" | sed -n "s/^v${BASE}\.\([0-9][0-9]*\)$/\1/p" | sort -n | tail -1)
+              if [ -z "$LAST" ]; then NEXT=0; else NEXT=$((LAST + 1)); fi
+              VER="${BASE}.${NEXT}"
+            fi
+            echo "version=$VER" >> "$GITHUB_OUTPUT"
+            echo "build_tag=v$VER" >> "$GITHUB_OUTPUT"
+            echo "🌙 Mode: Nightly ($VER)"
           fi
 
       # ── 4. RAUC 인증서 준비 ────────────────────────────
@@ -161,6 +197,14 @@ jobs:
           # 현재 커밋에 nightly 태그 생성
           git tag -f nightly
           git push origin nightly -f
+
+          # 빌드 번호 영속화: 버전 태그(예: v0.0.0.12)를 커밋에 남긴다.
+          # 다음 빌드는 같은 BASE 의 태그에서 최대 번호를 읽어 +1 한다.
+          # (GITHUB_TOKEN 푸시는 워크플로를 재트리거하지 않으므로 루프 없음)
+          if [ -n "${{ steps.meta.outputs.build_tag }}" ]; then
+            git tag -f "${{ steps.meta.outputs.build_tag }}"
+            git push origin "${{ steps.meta.outputs.build_tag }}" -f
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -172,7 +216,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag_name }}
-          name: ${{ steps.meta.outputs.mode == 'release' && format('LukeNasOS {0}', github.ref_name) || 'Nightly Build' }}
+          name: ${{ steps.meta.outputs.mode == 'release' && format('LukeNasOS {0}', github.ref_name) || format('Nightly Build ({0})', steps.meta.outputs.version) }}
           prerelease: ${{ steps.meta.outputs.mode == 'nightly' }}
           make_latest: ${{ steps.meta.outputs.mode == 'release' }}
           body: |
