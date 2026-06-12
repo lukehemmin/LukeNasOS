@@ -125,8 +125,8 @@
   "hotPaths": [
     {
       "path": "web_ui/installer.py",
-      "accessCount": 29,
-      "lastAccessed": 1781102707239,
+      "accessCount": 31,
+      "lastAccessed": 1781278444803,
       "type": "file"
     },
     {
