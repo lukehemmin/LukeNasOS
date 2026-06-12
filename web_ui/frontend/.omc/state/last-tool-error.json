@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"mkdir -p /tmp/lukenas-test/config && cd /root/LukeNasOS/web_ui && python3 -c \\\"\\nimport json\\nfrom werkzeug.security import generate_password_hash\\ncfg = {\\n  'setup_completed': True,\\n  '...",
-  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"<string>\", line 3, in <module>\nModuleNotFoundError: No module named 'werkzeug'",
-  "timestamp": "2026-06-10T16:39:37.604Z",
+  "tool_input_preview": "{\"command\":\"/tmp/lukenas-venv/bin/python -c \\\"import yaml; yaml.safe_load(open('/root/LukeNasOS/.github/workflows/build.yml')); print('YAML OK')\\\"\",\"description\":\"Validate workflow YAML syntax\"}",
+  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nModuleNotFoundError: No module named 'yaml'",
+  "timestamp": "2026-06-11T00:57:36.616Z",
   "retry_count": 1
 }

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"git status --short && echo --- && git log --oneline -5 && echo --- && grep -n \\\"dist\\\" web_ui/frontend/.gitignore .gitignore 2>/dev/null\",\"description\":\"Check git status and dist ignore ru...",
+  "error": "Exit code 2\n M .github/workflows/build.yml\n M .omc/project-memory.json\n M .omc/state/hud-stdin-cache.json\n D .omc/state/sessions/4a79097a-8875-4be6-ba2c-8e9fcedd857d/session-started.json\n M .omc/state/sessions/90cddcfe-c52d-494a-8ecd-c6acd3456174/session-started.json\n M web_ui/frontend/.omc/state/last-tool-error.json\n?? .omc/sessions/4a79097a-8875-4be6-ba2c-8e9fcedd857d.json\n?? .omc/sessions/90cddcfe-c52d-494a-8ecd-c6acd3456174.json\n?? .omc/sessions/e676149c-aced-4198-8217-f69e68bb6c1d.json\n?? ....",
+  "timestamp": "2026-06-12T13:40:40.740Z",
+  "retry_count": 1
+}

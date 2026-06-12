@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1781086710940,
+  "lastScanned": 1781265232775,
   "projectRoot": "/root/LukeNasOS",
   "techStack": {
     "languages": [],
@@ -9,7 +9,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "git add web_ui/frontend/src/App.tsx web_ui/frontend/src/components/AppCard.tsx web_ui/frontend/src/components/Layout.tsx web_ui/frontend/src/i18n/index.tsx web_ui/frontend/src/pages/AppStore.tsx web_ui/frontend/src/pages/Dashboard.tsx web_ui/frontend/src/pages/MyApps.tsx web_ui/frontend/src/pages/Setup.tsx web_ui/frontend/src/pages/Settings.tsx web_ui/frontend/src/tz.ts web_ui/routes/auth.py web_ui/routes/system.py && git commit -m \"$(cat <<'EOF'\nfeat(web): 설정 페이지 신설 — 일반·계정·시스템 설정 분리\n\n- Settings 페이지 추가: 호스트명·언어·시간대(일반), 비밀번호 변경(계정),\n  RAUC 업데이트·재부팅(시스템, 대시보드에서 이동), 버전·슬롯 정보\n- 백엔드: GET/POST /api/settings (NAS-DATA settings.json 영속),\n  POST /api/account/password (현재 비밀번호 확인 후 해시 교체)\n- App.tsx: 상태 기반 라우팅이 탭 이동을 덮어쓰지 않도록 현재 경로 확인,\n  /settings 라우트 등록; Layout 헤더에 설정 아이콘 추가\n- 대시보드는 모니터링 + 앱 런처 전용으로 축소\n- 셋업에 시간대 선택 추가(tz.ts), 설정 관련 i18n 키 5개 언어 정비\n\n검증: tsc + vite 빌드 통과, 셋업→자동로그인→비밀번호 변경→재로그인\n흐름 curl end-to-end 테스트 통과 (401/403/400/200 모두 기대값 일치)\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nEOF\n)\"",
+    "buildCommand": null,
     "testCommand": null,
     "lintCommand": null,
     "devCommand": null,
@@ -36,7 +36,7 @@
       "path": "certs",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1781086710917,
+      "lastAccessed": 1781265232750,
       "keyFiles": [
         "devel.cert.pem",
         "devel.key"
@@ -46,7 +46,7 @@
       "path": "iso_build",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1781086710926,
+      "lastAccessed": 1781265232759,
       "keyFiles": [
         "Dockerfile",
         "README.md",
@@ -58,8 +58,8 @@
     "screenshot": {
       "path": "screenshot",
       "purpose": null,
-      "fileCount": 13,
-      "lastAccessed": 1781086710928,
+      "fileCount": 17,
+      "lastAccessed": 1781265232761,
       "keyFiles": [
         "image copy 2.png",
         "image copy 3.png",
@@ -72,7 +72,7 @@
       "path": "update_bundles",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1781086710929,
+      "lastAccessed": 1781265232763,
       "keyFiles": [
         "lukenasos-update-1.0.0.raucb"
       ]
@@ -81,7 +81,7 @@
       "path": "web_ui",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1781086710931,
+      "lastAccessed": 1781265232765,
       "keyFiles": [
         "README.md",
         "app.py",
@@ -93,19 +93,19 @@
     "iso_build/scripts": {
       "path": "iso_build/scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 5,
-      "lastAccessed": 1781086710933,
+      "fileCount": 6,
+      "lastAccessed": 1781265232767,
       "keyFiles": [
+        "boot-mode-generator.sh",
         "confirm-boot.sh",
-        "console_tui.py",
-        "dashboard.sh"
+        "console_tui.py"
       ]
     },
     "iso_build/vendor": {
       "path": "iso_build/vendor",
       "purpose": "Third-party code",
       "fileCount": 1,
-      "lastAccessed": 1781086710934,
+      "lastAccessed": 1781265232769,
       "keyFiles": [
         "docker-compose"
       ]
@@ -114,7 +114,7 @@
       "path": "web_ui/routes",
       "purpose": "Route handlers",
       "fileCount": 5,
-      "lastAccessed": 1781086710937,
+      "lastAccessed": 1781265232772,
       "keyFiles": [
         "apps.py",
         "auth.py",
