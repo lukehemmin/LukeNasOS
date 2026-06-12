@@ -403,10 +403,15 @@ else
 fi
 
 # system.conf 생성
+#  grubenv 는 ESP 의 grub 디렉토리에 둔다(슬롯과 분리). installer.py 의 _configure_rauc 와
+#  반드시 동일해야 한다 — 이 conf 가 업데이트 번들 rootfs 에 구워지므로, grubenv 경로가
+#  빠지면 업데이트된 슬롯에서 mark-good 이 ESP 의 grubenv(_TRY) 를 못 지워 다음 부팅에
+#  정상 업데이트인데도 롤백/복구된다.
 cat <<EOF > config/includes.chroot/etc/rauc/system.conf
 [system]
 compatible=LukeNasOS
 bootloader=grub
+grubenv=/boot/efi/grub/grubenv
 
 [keyring]
 path=/etc/rauc/keyring.pem
