@@ -345,6 +345,10 @@ fi
 #   - root(/) 은 GRUB 가 root=PARTUUID=... 로 마운트하므로 fstab 에 적지 않는다
 #     (슬롯마다 PARTUUID 가 다르고, RAUC 가 슬롯을 재포맷하면 fs-UUID 도 바뀌기 때문).
 #   - ESP/DATA 는 RAUC 가 건드리지 않는 고정 파티션이라 LABEL 로 안정적으로 마운트한다.
+#   - ESP 는 필수 마운트(nofail 없음): RAUC grubenv(_TRY)가 ESP 에 있어, 마운트
+#     실패를 무시한 채 mark-good 하면 루트 FS 의 엉뚱한 경로에 쓰고 실제 _TRY 는
+#     남아 멀쩡한 슬롯이 롤백된다. live 부팅은 boot-mode generator 가
+#     boot-efi.mount 를 mask 하므로 이 줄의 영향을 받지 않는다.
 #   - DATA 는 live/복구 등 없을 수 있으므로 nofail (부팅 지연·실패 방지).
 echo "Writing slot-agnostic /etc/fstab..."
 mkdir -p config/includes.chroot/etc
@@ -352,8 +356,8 @@ cat <<EOF > config/includes.chroot/etc/fstab
 # /etc/fstab (LukeNasOS, slot-agnostic)
 # root(/) 은 GRUB 의 root=PARTUUID=... 로 마운트됨 (여기에 적지 않음)
 # tmpfs /tmp 는 systemd 의 tmp.mount 가 자동 처리하므로 여기에 적지 않음
-# nofail: Live ISO 부팅 시 해당 파티션이 없어도 부팅 실패하지 않음
-LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077,nofail          0 1
+# ESP 는 필수(RAUC grubenv 위치), live 부팅은 generator 가 boot-efi.mount 를 mask 함
+LABEL=NAS-BOOT  /boot/efi                vfat   umask=0077                 0 1
 LABEL=NAS-DATA  /var/lib/lukenasos/data  ext4   defaults,nofail            0 2
 EOF
 

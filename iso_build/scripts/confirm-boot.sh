@@ -21,6 +21,14 @@ if ! command -v rauc >/dev/null 2>&1; then
     exit 0
 fi
 
+# RAUC 의 grubenv(_TRY)는 ESP(/boot/efi) 위에 있다. ESP 가 마운트되지 않은 채
+# mark-good 하면 루트 FS 의 엉뚱한 경로에 grubenv 를 쓰고 실제 _TRY 는 남아
+# 다음 부팅에서 멀쩡한 슬롯이 롤백된다 → 마운트 확인 후에만 진행.
+if ! mountpoint -q /boot/efi; then
+    echo "confirm-boot: /boot/efi (ESP) is not mounted, NOT marking slot good." >&2
+    exit 1
+fi
+
 # mark-good 전에 핵심 서비스(웹 UI)가 실제로 살아있는지 확인한다.
 # After=lukenasos-web.service 는 시작 "순서"만 보장할 뿐(Type=simple 은 fork 즉시 started),
 # 프로세스가 곧바로 죽어도 이 스크립트는 실행된다. 응답까지 확인해야
