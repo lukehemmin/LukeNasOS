@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import socket
 import shutil
@@ -6,6 +7,15 @@ import subprocess
 import threading
 import time
 from utils.logger import logger
+
+# app_id 는 인증된 사용자의 요청(body/URL)에서 와서 카탈로그/프로젝트 디렉토리 경로 조각으로
+# 쓰인다. 검증이 없으면 '../x' 같은 값이 경로 탈출(rmtree/makedirs 대상 이탈)을 일으킬 수 있다.
+# 카탈로그 디렉토리명 컨벤션(영숫자 + - _)만 허용하고 첫 글자는 영숫자로 고정해 '.'/'..'/'/' 를 차단.
+_APP_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]*$')
+
+
+def _valid_app_id(app_id):
+    return isinstance(app_id, str) and _APP_ID_RE.match(app_id) is not None
 
 # 영구 저장 경로(DATA 파티션). dev 에서는 LUKENASOS_DATA_DIR 로 override.
 #  app.py 와 동일한 기본값을 사용한다.
@@ -97,6 +107,8 @@ class AppManager:
         return catalog
 
     def _get_catalog_entry(self, app_id):
+        if not _valid_app_id(app_id):
+            return None
         meta_path = os.path.join(CATALOG_DIR, app_id, 'app.json')
         if not os.path.isfile(meta_path):
             return None
@@ -134,6 +146,10 @@ class AppManager:
     # ----------------------------------------------------------------- compose 래퍼
 
     def _project_dir(self, app_id):
+        # 경로 탈출 안전벨트: 공개 진입점에서 이미 검증하지만, 모든 디스크 접근
+        # (makedirs/rmtree/compose cwd)이 여기로 수렴하므로 마지막 방어선을 둔다.
+        if not _valid_app_id(app_id):
+            raise ValueError(f"Invalid app_id: {app_id!r}")
         return os.path.join(APPS_DIR, app_id)
 
     def _compose(self, app_id, *args, timeout=600):
@@ -356,6 +372,8 @@ class AppManager:
     # ----------------------------------------------------------------- 제어
 
     def _lifecycle(self, app_id, action):
+        if not _valid_app_id(app_id):
+            return False, "잘못된 앱 ID 입니다."
         if self.is_simulation:
             return True, f"(시뮬레이션) {action} 완료"
         if not os.path.isdir(self._project_dir(app_id)):
@@ -375,6 +393,8 @@ class AppManager:
         return self._lifecycle(app_id, 'restart')
 
     def uninstall(self, app_id, delete_data=False):
+        if not _valid_app_id(app_id):
+            return False, "잘못된 앱 ID 입니다."
         if not any(e.get('id') == app_id for e in self._read_installed()):
             return False, "설치되지 않은 앱입니다."
         if not self.is_simulation:
@@ -392,6 +412,8 @@ class AppManager:
         return True, "삭제 완료"
 
     def get_logs(self, app_id, tail=200):
+        if not _valid_app_id(app_id):
+            return ""
         if self.is_simulation:
             return f"(시뮬레이션) {app_id} 로그 없음"
         if not os.path.isdir(self._project_dir(app_id)):
