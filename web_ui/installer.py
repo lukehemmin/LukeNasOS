@@ -1,3 +1,4 @@
+import glob
 import os
 import subprocess
 import json
@@ -129,7 +130,9 @@ class Installer:
             # 1. 초기화 및 언마운트 (5%)
             self._update_status(5, "Unmounting target disk...")
             # 파티션들이 마운트되어 있을 수 있으므로 언마운트 시도 (실패해도 무시)
-            subprocess.run(f"umount {target_disk}*", shell=True, stderr=subprocess.DEVNULL)
+            # shell=True + f-string 은 disk 값 셸 주입 가능 → glob + 인자 배열로 대체
+            for part in sorted(glob.glob(f"{target_disk}*")):
+                subprocess.run(['umount', part], stderr=subprocess.DEVNULL)
 
             # 2. 파티셔닝 (10%)
             self._update_status(10, f"Partitioning {target_disk}...")
