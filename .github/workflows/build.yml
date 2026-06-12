@@ -141,6 +141,7 @@ jobs:
         run: |
           docker run --rm --privileged \
             -v "${{ github.workspace }}:/project" \
+            -e LUKENASOS_VERSION="${{ steps.meta.outputs.version }}" \
             "$BUILDER_IMAGE" \
             /project/iso_build/build_iso.sh
 

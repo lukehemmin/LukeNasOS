@@ -1,9 +1,52 @@
 import os
+import re
+import shutil
 import subprocess
 import json
 import threading
 import time
+import urllib.error
+import urllib.request
 from utils.logger import logger
+
+# 온라인 업데이트를 가져올 GitHub 저장소 (릴리즈 자산: lukenasos-update-{version}.raucb)
+GITHUB_REPO = os.environ.get('LUKENASOS_UPDATE_REPO', 'lukehemmin/LukeNasOS')
+VERSION_FILE = '/etc/lukenasos-version'
+BUNDLE_ASSET_RE = re.compile(r'^lukenasos-update-(.+)\.raucb$')
+
+
+def get_current_version():
+    """
+    빌드 시 이미지에 구워진 /etc/lukenasos-version 을 읽는다.
+    (CI 가 LUKENASOS_VERSION 으로 전달 → build_iso.sh 가 includes.chroot 에 기록)
+    개발 환경 등 파일이 없으면 환경변수 → '0.0.0-dev' 순으로 폴백.
+    """
+    try:
+        with open(VERSION_FILE, 'r') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    except OSError:
+        pass
+    return os.environ.get('LUKENASOS_VERSION', '0.0.0-dev')
+
+
+def _parse_version(v):
+    """'v1.0.0' / '0.0.0.12' / '0.0.0-dev' → 숫자 튜플. 프리릴리즈 접미사는 무시."""
+    v = re.split(r'[-+]', v.strip().lstrip('vV'))[0]
+    parts = []
+    for p in v.split('.'):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def _version_newer(latest, current):
+    a, b = _parse_version(latest), _parse_version(current)
+    n = max(len(a), len(b))
+    return a + (0,) * (n - len(a)) > b + (0,) * (n - len(b))
 
 class UpdateEngine:
     def __init__(self):
@@ -163,14 +206,145 @@ class UpdateEngine:
             'progress': self.progress
         }
 
+    # ── 온라인 업데이트 (GitHub 릴리즈) ──────────────────────
+
+    def _github_api(self, path):
+        url = f'https://api.github.com/repos/{GITHUB_REPO}{path}'
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'LukeNasOS-Updater',
+            'Accept': 'application/vnd.github+json',
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+
+    def _find_latest_release(self):
+        """
+        정식 릴리즈(latest)를 우선 사용하고, 아직 정식 릴리즈가 없으면
+        nightly 등 prerelease 중 최신을 사용한다.
+        """
+        try:
+            return self._github_api('/releases/latest')
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+        for rel in self._github_api('/releases?per_page=10'):
+            if not rel.get('draft'):
+                return rel
+        return None
+
+    @staticmethod
+    def _find_bundle_asset(release):
+        for asset in release.get('assets', []):
+            if BUNDLE_ASSET_RE.match(asset.get('name', '')):
+                return asset
+        return None
+
+    def check_online_update(self):
+        """
+        GitHub 릴리즈를 조회해 업그레이드 가능 여부를 반환한다.
+        반환 dict: current_version, latest_version, update_available,
+                  release_name, prerelease, asset_name, asset_size, download_url
+        """
+        current = get_current_version()
+        release = self._find_latest_release()
+        asset = self._find_bundle_asset(release) if release else None
+        if not release or not asset:
+            return {
+                'current_version': current,
+                'latest_version': None,
+                'update_available': False,
+                'message': 'No update bundle found in GitHub releases.',
+            }
+
+        m = BUNDLE_ASSET_RE.match(asset['name'])
+        latest = m.group(1) if m else release.get('tag_name', '').lstrip('vV')
+        return {
+            'current_version': current,
+            'latest_version': latest,
+            'update_available': _version_newer(latest, current),
+            'release_name': release.get('name'),
+            'prerelease': bool(release.get('prerelease')),
+            'published_at': release.get('published_at'),
+            'asset_name': asset['name'],
+            'asset_size': asset.get('size'),
+            'download_url': asset['browser_download_url'],
+        }
+
+    def download_and_install(self, dest_dir):
+        """
+        GitHub 릴리즈에서 최신 번들을 내려받아 설치한다 (비동기).
+        클라이언트가 보낸 URL 을 신뢰하지 않고 서버가 직접 재조회한다.
+        """
+        with self.lock:
+            if self.status in ('downloading', 'installing'):
+                return False, "Update already in progress"
+            self.status = 'downloading'
+            self.message = 'Checking for updates...'
+            self.progress = 0
+
+        thread = threading.Thread(target=self._run_download_install, args=(dest_dir,))
+        thread.start()
+        return True, "Update started"
+
+    def _run_download_install(self, dest_dir):
+        dest = None
+        try:
+            info = self.check_online_update()
+            if not info.get('update_available'):
+                raise Exception(info.get('message') or 'Already up to date.')
+
+            asset_size = info.get('asset_size') or 0
+            os.makedirs(dest_dir, exist_ok=True)
+            # 다운로드 전 여유 공간 가드 (검증 여유분 10%)
+            free = shutil.disk_usage(dest_dir).free
+            if asset_size and asset_size * 1.1 > free:
+                gib = 1024 ** 3
+                raise Exception(f"Not enough free space to download update "
+                                f"({asset_size / gib:.1f} GiB needed, {free / gib:.1f} GiB free).")
+
+            dest = os.path.join(dest_dir, info['asset_name'])
+            logger.info(f"Downloading update {info['latest_version']} from {info['download_url']}")
+            req = urllib.request.Request(info['download_url'],
+                                         headers={'User-Agent': 'LukeNasOS-Updater'})
+            with urllib.request.urlopen(req, timeout=60) as resp, open(dest, 'wb') as out:
+                total = int(resp.headers.get('Content-Length') or asset_size or 0)
+                done = 0
+                while True:
+                    chunk = resp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        self.progress = int(done * 100 / total)
+                        self.message = (f"Downloading update {info['latest_version']}... "
+                                        f"{done // (1024 * 1024)} / {total // (1024 * 1024)} MiB")
+
+            with self.lock:
+                self.status = 'installing'
+                self.message = 'Installing update...'
+                self.progress = 0
+            self._run_install(dest)
+        except Exception as e:
+            logger.error(f"Online update failed: {e}")
+            self.status = 'error'
+            self.message = str(e)
+        finally:
+            # 설치 성공/실패와 무관하게 내려받은 번들은 더 이상 필요 없다
+            if dest:
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
+
     def install_update(self, bundle_path):
         """
         비동기로 업데이트 설치를 시작합니다.
         """
         with self.lock:
-            if self.status == 'installing':
+            if self.status in ('downloading', 'installing'):
                 return False, "Update already in progress"
-            
+
             self.status = 'installing'
             self.message = 'Starting update...'
             self.progress = 0

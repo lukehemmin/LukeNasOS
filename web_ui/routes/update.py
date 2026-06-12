@@ -12,6 +12,33 @@ def update_status():
     """대시보드 업데이트 진행 상태 (active/inactive slot, status, message, progress)."""
     return jsonify(update_engine.get_status())
 
+@update_bp.route('/api/update/check')
+@login_required
+def check_update():
+    """GitHub 릴리즈를 조회해 새 버전이 있는지 확인합니다."""
+    try:
+        return jsonify({'status': 'success', **update_engine.check_online_update()})
+    except Exception as e:
+        return jsonify({'status': 'error',
+                        'message': f'Update check failed: {e}'}), 502
+
+@update_bp.route('/api/update/online', methods=['POST'])
+@login_required
+def online_update():
+    """
+    GitHub 릴리즈에서 최신 .raucb 번들을 내려받아 설치합니다 (비동기).
+    진행 상황은 /api/update/status 로 폴링합니다.
+    URL 은 클라이언트 입력을 받지 않고 서버가 직접 재조회합니다.
+    """
+    try:
+        success, message = update_engine.download_and_install(
+            current_app.config['UPLOAD_FOLDER'])
+        if success:
+            return jsonify({'status': 'success', 'message': message})
+        return jsonify({'status': 'error', 'message': message}), 409
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @update_bp.route('/api/update', methods=['POST'])
 @login_required
 def update_system():

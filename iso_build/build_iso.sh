@@ -95,6 +95,14 @@ iptables
 uidmap
 EOF
 
+# 4.5 OS 버전 파일
+#  CI 가 LUKENASOS_VERSION 으로 빌드 버전을 전달한다. 웹 UI 가 이 파일을 읽어
+#  현재 버전을 표시하고, GitHub 릴리즈와 비교해 온라인 업데이트 가능 여부를 판단한다.
+#  같은 chroot 가 RAUC 번들 rootfs 로도 쓰이므로 업데이트 후 버전도 자동 반영된다.
+echo "Writing OS version file (${LUKENASOS_VERSION:-0.0.0-dev})..."
+mkdir -p config/includes.chroot/etc
+echo "${LUKENASOS_VERSION:-0.0.0-dev}" > config/includes.chroot/etc/lukenasos-version
+
 # 5. Web UI 설치 훅 생성
 echo "Setting up Web UI installation hook..."
 mkdir -p config/hooks/normal

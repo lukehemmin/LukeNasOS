@@ -3,6 +3,7 @@ import os
 import secrets
 from routes.system import system_bp
 from routes.update import update_bp
+from update_engine import get_current_version
 from routes.auth import auth_bp
 from routes.install import install_bp
 from routes.apps import apps_bp
@@ -79,7 +80,8 @@ def create_app():
 
     app.config['DATA_DIR'] = DATA_DIR
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-    app.config['CURRENT_VERSION'] = "1.0.0" 
+    # 빌드 시 이미지에 구워진 /etc/lukenasos-version 에서 읽는다 (없으면 0.0.0-dev)
+    app.config['CURRENT_VERSION'] = get_current_version()
     
     config_manager = ConfigManager(CONFIG_FILE)
     app.config['config_manager'] = config_manager

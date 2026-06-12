@@ -129,6 +129,18 @@ const en = {
   errPwChange: 'Failed to change password.',
   versionLabel: 'Version',
   activeSlotLabel: 'Active slot',
+
+  // 온라인 업데이트 (GitHub 릴리즈)
+  checkUpdateBtn: 'Check for updates',
+  upToDateMsg: 'You are on the latest version.',
+  updateAvailableFmt: 'New version available: {version}',
+  nightlyBadge: '(nightly)',
+  updateNowBtn: 'Update',
+  confirmOnlineUpdateFmt: 'Do you really want to update?\nAfter the update ({version}) is installed, the system must be restarted to apply it.',
+  downloadingMsg: 'Downloading update...',
+  rebootNowBtn: 'Reboot now',
+  manualUpdateTitle: 'Manual update (.raucb upload)',
+  errCheckUpdate: 'Failed to check for updates.',
 };
 
 export type MsgKey = keyof typeof en;
@@ -226,6 +238,17 @@ const ko: Messages = {
   errPwChange: '비밀번호 변경에 실패했습니다.',
   versionLabel: '버전',
   activeSlotLabel: '활성 슬롯',
+
+  checkUpdateBtn: '업데이트 확인',
+  upToDateMsg: '현재 최신 버전을 사용 중입니다.',
+  updateAvailableFmt: '새 버전이 있습니다: {version}',
+  nightlyBadge: '(나이틀리)',
+  updateNowBtn: '업데이트',
+  confirmOnlineUpdateFmt: '정말 업데이트를 진행하시겠습니까?\n업데이트({version})가 설치된 후 시스템을 재시작해야 적용됩니다.',
+  downloadingMsg: '업데이트 다운로드 중...',
+  rebootNowBtn: '지금 재시작',
+  manualUpdateTitle: '수동 업데이트 (.raucb 업로드)',
+  errCheckUpdate: '업데이트 확인에 실패했습니다.',
 };
 
 const ja: Messages = {
@@ -320,6 +343,17 @@ const ja: Messages = {
   errPwChange: 'パスワードの変更に失敗しました。',
   versionLabel: 'バージョン',
   activeSlotLabel: 'アクティブスロット',
+
+  checkUpdateBtn: 'アップデートを確認',
+  upToDateMsg: '現在最新バージョンです。',
+  updateAvailableFmt: '新しいバージョンがあります: {version}',
+  nightlyBadge: '(ナイトリー)',
+  updateNowBtn: 'アップデート',
+  confirmOnlineUpdateFmt: '本当にアップデートを実行しますか?\nアップデート({version})のインストール後、適用にはシステムの再起動が必要です。',
+  downloadingMsg: 'アップデートをダウンロード中...',
+  rebootNowBtn: '今すぐ再起動',
+  manualUpdateTitle: '手動アップデート (.raucb アップロード)',
+  errCheckUpdate: 'アップデートの確認に失敗しました。',
 };
 
 const zh: Messages = {
@@ -414,6 +448,17 @@ const zh: Messages = {
   errPwChange: '修改密码失败。',
   versionLabel: '版本',
   activeSlotLabel: '活动槽位',
+
+  checkUpdateBtn: '检查更新',
+  upToDateMsg: '当前已是最新版本。',
+  updateAvailableFmt: '发现新版本:{version}',
+  nightlyBadge: '(每夜版)',
+  updateNowBtn: '更新',
+  confirmOnlineUpdateFmt: '确定要进行更新吗?\n更新({version})安装完成后,需要重启系统才能生效。',
+  downloadingMsg: '正在下载更新...',
+  rebootNowBtn: '立即重启',
+  manualUpdateTitle: '手动更新(上传 .raucb)',
+  errCheckUpdate: '检查更新失败。',
 };
 
 const de: Messages = {
@@ -508,6 +553,17 @@ const de: Messages = {
   errPwChange: 'Passwort konnte nicht geändert werden.',
   versionLabel: 'Version',
   activeSlotLabel: 'Aktiver Slot',
+
+  checkUpdateBtn: 'Nach Updates suchen',
+  upToDateMsg: 'Sie verwenden die neueste Version.',
+  updateAvailableFmt: 'Neue Version verfügbar: {version}',
+  nightlyBadge: '(Nightly)',
+  updateNowBtn: 'Aktualisieren',
+  confirmOnlineUpdateFmt: 'Möchten Sie das Update wirklich durchführen?\nNach der Installation des Updates ({version}) ist ein Neustart des Systems erforderlich.',
+  downloadingMsg: 'Update wird heruntergeladen...',
+  rebootNowBtn: 'Jetzt neu starten',
+  manualUpdateTitle: 'Manuelles Update (.raucb-Upload)',
+  errCheckUpdate: 'Updateprüfung fehlgeschlagen.',
 };
 
 const es: Messages = {
@@ -602,6 +658,17 @@ const es: Messages = {
   errPwChange: 'No se pudo cambiar la contraseña.',
   versionLabel: 'Versión',
   activeSlotLabel: 'Ranura activa',
+
+  checkUpdateBtn: 'Buscar actualizaciones',
+  upToDateMsg: 'Ya tiene la última versión.',
+  updateAvailableFmt: 'Nueva versión disponible: {version}',
+  nightlyBadge: '(nightly)',
+  updateNowBtn: 'Actualizar',
+  confirmOnlineUpdateFmt: '¿Desea realizar la actualización?\nTras instalar la actualización ({version}), será necesario reiniciar el sistema para aplicarla.',
+  downloadingMsg: 'Descargando actualización...',
+  rebootNowBtn: 'Reiniciar ahora',
+  manualUpdateTitle: 'Actualización manual (subir .raucb)',
+  errCheckUpdate: 'No se pudo comprobar si hay actualizaciones.',
 };
 
 const fr: Messages = {
@@ -696,6 +763,17 @@ const fr: Messages = {
   errPwChange: 'Échec du changement de mot de passe.',
   versionLabel: 'Version',
   activeSlotLabel: 'Slot actif',
+
+  checkUpdateBtn: 'Rechercher des mises à jour',
+  upToDateMsg: 'Vous utilisez déjà la dernière version.',
+  updateAvailableFmt: 'Nouvelle version disponible : {version}',
+  nightlyBadge: '(nightly)',
+  updateNowBtn: 'Mettre à jour',
+  confirmOnlineUpdateFmt: "Voulez-vous vraiment effectuer la mise à jour ?\nAprès l'installation de la mise à jour ({version}), un redémarrage du système sera nécessaire.",
+  downloadingMsg: 'Téléchargement de la mise à jour...',
+  rebootNowBtn: 'Redémarrer maintenant',
+  manualUpdateTitle: 'Mise à jour manuelle (envoi .raucb)',
+  errCheckUpdate: 'Impossible de vérifier les mises à jour.',
 };
 
 const messages: Record<Lang, Messages> = { en, ko, ja, zh, de, es, fr };

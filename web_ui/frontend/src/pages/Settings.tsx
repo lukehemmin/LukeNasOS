@@ -4,6 +4,7 @@ import axios from 'axios';
 import {
   Languages, Clock, HardDrive, Lock, Upload, Power, Info,
   Loader2, AlertCircle, Check, SlidersHorizontal, KeyRound,
+  RefreshCw, Download,
 } from 'lucide-react';
 import { LANGUAGES, isLang, useI18n, type MsgKey } from '../i18n';
 import { TIMEZONES } from '../tz';
@@ -14,9 +15,19 @@ import { TIMEZONES } from '../tz';
 interface UpdateStatus {
   active_slot: string;
   inactive_slot: string;
-  status: 'idle' | 'installing' | 'success' | 'error';
+  status: 'idle' | 'downloading' | 'installing' | 'success' | 'error';
   message: string;
   progress: number;
+}
+
+// GET /api/update/check 응답 (GitHub 릴리즈 조회 결과)
+interface UpdateCheck {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  prerelease?: boolean;
+  asset_name?: string;
+  asset_size?: number;
 }
 
 // key 로 주면 렌더 시점에 번역 → 언어를 바꿔 저장해도 배너가 새 언어로 표시된다.
@@ -71,6 +82,8 @@ export default function Settings() {
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
   const [uploading, setUploading] = useState(false);
   const [updateErr, setUpdateErr] = useState<string | null>(null);
+  const [check, setCheck] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
   const [about, setAbout] = useState<{ version?: string; active_slot?: string }>({});
   const updatePoll = useRef<any>(null);
 
@@ -147,6 +160,39 @@ export default function Settings() {
   }, [handleAuthError]);
 
   useEffect(() => () => { if (updatePoll.current) clearInterval(updatePoll.current); }, []);
+
+  // GitHub 릴리즈 조회 → 새 버전 여부 표시 (가능하면 버튼이 '업데이트'로 바뀐다)
+  const checkUpdate = async () => {
+    setChecking(true);
+    setUpdateErr(null);
+    try {
+      const res = await axios.get('/api/update/check');
+      setCheck(res.data);
+    } catch (err: any) {
+      if (handleAuthError(err)) return;
+      setUpdateErr(err.response?.data?.message || t('errCheckUpdate'));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // 확인 다이얼로그 → GitHub 에서 번들 다운로드+설치 (서버가 URL 재조회)
+  const startOnlineUpdate = async () => {
+    if (!check?.update_available) return;
+    if (!confirm(t('confirmOnlineUpdateFmt', { version: check.latest_version ?? '' }))) return;
+    setUpdateErr(null);
+    setUploading(true);
+    setUpdate({ active_slot: '', inactive_slot: '', status: 'downloading', message: t('downloadingMsg'), progress: 0 });
+    try {
+      await axios.post('/api/update/online');
+      pollUpdate();
+    } catch (err: any) {
+      if (handleAuthError(err)) return;
+      setUploading(false);
+      setUpdate(null);
+      setUpdateErr(err.response?.data?.message || t('errUpdateStart'));
+    }
+  };
 
   const startUpdate = async () => {
     if (!file) return;
@@ -252,7 +298,7 @@ export default function Settings() {
 
         {update && update.status !== 'idle' ? (
           <div className="space-y-3">
-            {update.status === 'installing' && (
+            {(update.status === 'downloading' || update.status === 'installing') && (
               <>
                 <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
                   <div className="bg-blue-400 h-full transition-all duration-500" style={{ width: `${update.progress}%` }} />
@@ -263,8 +309,12 @@ export default function Settings() {
               </>
             )}
             {update.status === 'success' && (
-              <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-300 text-sm">
-                {update.message} {t('updateSuccessNote')}
+              <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-300 text-sm space-y-3">
+                <p>{update.message} {t('updateSuccessNote')}</p>
+                <button onClick={reboot}
+                  className="px-4 py-2 bg-green-500/90 hover:bg-green-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                  <Power size={15} /> {t('rebootNowBtn')}
+                </button>
               </div>
             )}
             {update.status === 'error' && (
@@ -274,16 +324,54 @@ export default function Settings() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <input
-              type="file"
-              accept=".raucb"
-              onChange={e => setFile(e.target.files?.[0] || null)}
-              className="flex-1 text-sm text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-500/15 file:text-blue-300 hover:file:bg-blue-500/25 file:cursor-pointer"
-            />
-            <button onClick={startUpdate} disabled={!file || uploading} className={primaryBtn}>
-              {uploading && <Loader2 className="animate-spin" size={15} />} {t('installUpdateBtn')}
-            </button>
+          <div className="space-y-5">
+            {/* 온라인 업데이트: GitHub 릴리즈 확인 → 가능하면 버튼이 '업데이트'로 전환 */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 text-sm">
+                {check ? (
+                  check.update_available ? (
+                    <span className="text-blue-300 flex items-center gap-1.5">
+                      <Download size={15} />
+                      {t('updateAvailableFmt', { version: check.latest_version ?? '' })}
+                      {check.prerelease && <span className="text-slate-500">{t('nightlyBadge')}</span>}
+                    </span>
+                  ) : (
+                    <span className="text-green-300 flex items-center gap-1.5">
+                      <Check size={15} /> {t('upToDateMsg')}
+                    </span>
+                  )
+                ) : (
+                  <span className="text-slate-400">
+                    {t('versionLabel')}: <span className="font-mono text-slate-200">{about.version || '—'}</span>
+                  </span>
+                )}
+              </div>
+              {check?.update_available ? (
+                <button onClick={startOnlineUpdate} disabled={uploading} className={primaryBtn}>
+                  <Download size={15} /> {t('updateNowBtn')}
+                </button>
+              ) : (
+                <button onClick={checkUpdate} disabled={checking || uploading} className={primaryBtn}>
+                  {checking ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />} {t('checkUpdateBtn')}
+                </button>
+              )}
+            </div>
+
+            {/* 수동 업데이트: 서명된 .raucb 번들 직접 업로드 */}
+            <div className="pt-4 border-t border-white/10">
+              <p className="text-sm font-medium text-slate-300 mb-3">{t('manualUpdateTitle')}</p>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <input
+                  type="file"
+                  accept=".raucb"
+                  onChange={e => setFile(e.target.files?.[0] || null)}
+                  className="flex-1 text-sm text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-500/15 file:text-blue-300 hover:file:bg-blue-500/25 file:cursor-pointer"
+                />
+                <button onClick={startUpdate} disabled={!file || uploading} className={primaryBtn}>
+                  {uploading && <Loader2 className="animate-spin" size={15} />} {t('installUpdateBtn')}
+                </button>
+              </div>
+            </div>
           </div>
         )}
         <p className="text-xs text-slate-500 mt-4">
