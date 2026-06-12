@@ -21,6 +21,28 @@ if ! command -v rauc >/dev/null 2>&1; then
     exit 0
 fi
 
+# mark-good 전에 핵심 서비스(웹 UI)가 실제로 살아있는지 확인한다.
+# After=lukenasos-web.service 는 시작 "순서"만 보장할 뿐(Type=simple 은 fork 즉시 started),
+# 프로세스가 곧바로 죽어도 이 스크립트는 실행된다. 응답까지 확인해야
+# 고장난 슬롯을 good 으로 확정하는 일을 막을 수 있다.
+WEB_URL="http://127.0.0.1:80/"
+HEALTH_TIMEOUT=120   # seconds
+HEALTH_INTERVAL=3    # seconds
+
+echo "confirm-boot: waiting for web UI at ${WEB_URL} (timeout ${HEALTH_TIMEOUT}s)..."
+elapsed=0
+until curl -fsS --max-time 5 -o /dev/null "$WEB_URL"; do
+    elapsed=$((elapsed + HEALTH_INTERVAL))
+    if [ "$elapsed" -ge "$HEALTH_TIMEOUT" ]; then
+        # mark-good 를 호출하지 않고 실패로 끝낸다 → grubenv 의 _TRY 가 남아
+        # 다음 부팅에서 이전 슬롯으로 자동 롤백된다.
+        echo "confirm-boot: web UI did not become healthy within ${HEALTH_TIMEOUT}s, NOT marking slot good." >&2
+        exit 1
+    fi
+    sleep "$HEALTH_INTERVAL"
+done
+echo "confirm-boot: web UI is healthy."
+
 echo "confirm-boot: marking current slot good..."
 rauc status mark-good
 echo "confirm-boot: done."
