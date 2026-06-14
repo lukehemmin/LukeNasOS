@@ -37,7 +37,7 @@ lb config \
     --architectures amd64 \
     --linux-flavours amd64 \
     --archive-areas "main contrib non-free-firmware" \
-    --bootappend-live "boot=live components quiet splash hostname=lukenasos" \
+    --bootappend-live "boot=live components quiet splash hostname=lukenasos noprompt" \
     --iso-volume "LukeNasOS" \
     --mirror-bootstrap "http://deb.debian.org/debian/" \
     --mirror-chroot "http://deb.debian.org/debian/" \
