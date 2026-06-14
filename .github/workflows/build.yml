@@ -112,11 +112,22 @@ jobs:
             printf '%s\n' "$RAUC_KEY" > certs/devel.key
             printf '%s\n' "$RAUC_CERT" > certs/devel.cert.pem
             chmod 600 certs/devel.key
-          else
-            echo "🔑 Generating self-signed RAUC development keys (no secrets found)..."
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR 검증 빌드는 .raucb 를 게시하지 않으므로(아래 게시 단계는 모두
+            # github.event_name != 'pull_request' 조건) 일회성 자체서명 키로 충분하다.
+            echo "🔑 PR validation build: generating throwaway self-signed RAUC keys..."
             openssl req -newkey rsa:4096 -nodes -keyout certs/devel.key \
               -x509 -days 3650 -out certs/devel.cert.pem \
               -subj "/O=LukeNasOS/CN=LukeNasOS Development/"
+          else
+            # 게시 빌드(nightly/release)는 안정적인 서명 키가 필수다. 매 실행마다
+            # 키를 회전하면 기기에 구워진 /etc/rauc/keyring.pem(이전 키)이 새 번들
+            # 서명을 거부해 온라인 업데이트가 구조적으로 불가능해진다. → 명확히 실패.
+            echo "::error::RAUC_KEY/RAUC_CERT secrets are required for publishing builds."
+            echo "::error::Rotating signing keys per run makes devices installed from"
+            echo "::error::earlier ISOs reject these update bundles (keyring mismatch)."
+            echo "::error::Set RAUC_KEY and RAUC_CERT in the repository secrets."
+            exit 1
           fi
         env:
           RAUC_KEY: ${{ secrets.RAUC_KEY }}
