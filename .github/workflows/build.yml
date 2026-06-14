@@ -50,11 +50,13 @@ jobs:
           df -h /
 
       # ── 2. 체크아웃 ─────────────────────────────────────
-      #    fetch-tags: 나이틀리 빌드 번호(v{BASE}.N 태그) 계산에 전체 태그 필요
+      #    fetch-depth: 0 — 나이틀리 빌드 번호(v{BASE}.N 태그) 계산에 전체 태그 필요.
+      #    fetch-tags: true 만으로는 checkout 의 단일 커밋 fetch(--depth=1)에 태그가
+      #    따라오지 않아 `git tag -l` 이 비어 매 빌드가 N=0(0.0.0.0)으로 고정됐다.
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-tags: true
+          fetch-depth: 0
 
       # ── 3. 빌드 모드·버전 판별 ───────────────────────────
       #    버전 체계 (나이틀리): {VERSION 파일의 BASE}.{빌드 번호}
