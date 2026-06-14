@@ -101,21 +101,51 @@ class UpdateEngine:
                                     capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
-                
-                # RAUC output parsing
-                # Example structure: {"compatible": "...", "booted": "A", "slots": [...]}
-                booted_slot = data.get('booted')
-                
-                if booted_slot:
-                    self.active_slot = booted_slot
-                    # Assuming simple A/B scheme
-                    self.inactive_slot = 'B' if self.active_slot == 'A' else 'A'
+
+                # RAUC 의 booted 는 슬롯 '이름'(예: rootfs.0)이고, A/B 는 슬롯의
+                # bootname 이다. slots 를 파싱해 booted 슬롯의 bootname 을 활성으로,
+                # 나머지를 비활성으로 매핑한다. (직접 booted=A/B 로 가정하면 active/inactive 가
+                # 뒤바뀌어 대시보드 표시·용량 가드가 엉뚱한 파티션을 가리킨다.)
+                # 구조: {"booted": "rootfs.0", "slots": [{"rootfs.0": {"bootname": "A", ...}}, ...]}
+                booted_name = data.get('booted')
+                bootnames = {}  # slot_name -> bootname
+                for entry in data.get('slots', []):
+                    for slot_name, info in entry.items():
+                        bn = info.get('bootname')
+                        if bn:
+                            bootnames[slot_name] = bn
+
+                active_bn = bootnames.get(booted_name)
+                if active_bn:
+                    others = [bn for sn, bn in bootnames.items() if sn != booted_name]
+                    self.active_slot = active_bn
+                    self.inactive_slot = others[0] if others else ('B' if active_bn == 'A' else 'A')
                     logger.info(f"Slots refreshed: Active={self.active_slot}, Inactive={self.inactive_slot}")
+                    return
+
+                # 폴백: 커널 cmdline 의 rauc.slot=A/B (confirm-boot.sh 와 동일한 소스)
+                active_bn = self._booted_slot_from_cmdline()
+                if active_bn:
+                    self.active_slot = active_bn
+                    self.inactive_slot = 'B' if active_bn == 'A' else 'A'
+                    logger.info(f"Slots from cmdline: Active={self.active_slot}, Inactive={self.inactive_slot}")
                 else:
-                    logger.warning("Could not determine booted slot from RAUC status")
+                    logger.warning("Could not determine booted slot from RAUC status or cmdline")
 
         except Exception as e:
             logger.error(f"Failed to refresh slots: {e}")
+
+    @staticmethod
+    def _booted_slot_from_cmdline():
+        """커널 cmdline 의 rauc.slot=A/B 를 읽는다. 없으면 None."""
+        try:
+            with open('/proc/cmdline', 'r') as f:
+                for tok in f.read().split():
+                    if tok.startswith('rauc.slot='):
+                        return tok.split('=', 1)[1].strip()
+        except OSError:
+            pass
+        return None
 
     def _slot_devices(self):
         """
