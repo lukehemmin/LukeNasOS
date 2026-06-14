@@ -43,6 +43,7 @@ if [ "$mode" = installer ]; then
         lukenasos-sshkeygen.service \
         lukenasos-confirm-boot.service \
         docker.service \
+        docker.socket \
         containerd.service
     do
         ln -sf /dev/null "$EARLY_DIR/$unit"
