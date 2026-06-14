@@ -40,7 +40,8 @@ def get_status():
     return jsonify({
         'status': installer.status,
         'message': installer.message,
-        'progress': installer.progress
+        'progress': installer.progress,
+        'log': installer.get_log()
     })
 
 @install_bp.route('/api/install/reboot', methods=['POST'])

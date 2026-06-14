@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   HardDrive, Server, Power, AlertCircle, AlertTriangle, CheckCircle2,
   Loader2, Check, ShieldCheck, Boxes, Globe, ArrowRight, ArrowLeft,
-  Usb, RotateCw,
+  Usb, RotateCw, Terminal, ChevronDown,
 } from 'lucide-react';
 
 // 설치 마법사는 영어 전용. 언어·시간대·NAS 이름은 설치 후 첫 부팅의 셋업 과정에서 설정한다.
@@ -81,6 +81,14 @@ export default function Installer() {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const [showLog, setShowLog] = useState(true);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // 새 로그가 쌓이면 콘솔을 맨 아래로 자동 스크롤
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log]);
 
   // Step 1: Check Installation Status
   useEffect(() => {
@@ -92,10 +100,12 @@ export default function Installer() {
           setStep(3);
           setProgress(res.data.progress);
           setStatusMsg(res.data.message);
+          setLog(res.data.log || []);
         } else if (res.data.status === 'success') {
           // 설치 완료 화면 유지 (새로고침해도 welcome 으로 되돌아가지 않음)
           setProgress(res.data.progress);
           setStatusMsg(res.data.message);
+          setLog(res.data.log || []);
           setStep(4);
         } else if (res.data.status === 'error') {
           // 실패는 에러를 표시한 채 디스크 선택 단계로 (재시도 가능)
@@ -130,6 +140,7 @@ export default function Installer() {
           const res = await axios.get('/api/install/status');
           setProgress(res.data.progress);
           setStatusMsg(res.data.message);
+          setLog(res.data.log || []);
           if (res.data.status === 'success') {
             setStep(4);
             clearInterval(interval);
@@ -342,6 +353,34 @@ export default function Installer() {
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* 설치 로그 콘솔 — 진행 상황을 실시간으로 보여준다 */}
+                  <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowLog(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Terminal size={15} className="text-gray-400" /> Installation log
+                      </span>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${showLog ? 'rotate-180' : ''}`} />
+                    </button>
+                    {showLog && (
+                      <div
+                        ref={logRef}
+                        className="h-44 overflow-y-auto bg-slate-900 text-slate-300 font-mono text-xs leading-relaxed p-3 space-y-0.5"
+                      >
+                        {log.length === 0 ? (
+                          <div className="text-slate-500">Waiting for output...</div>
+                        ) : (
+                          log.map((line, i) => (
+                            <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}

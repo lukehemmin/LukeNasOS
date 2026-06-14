@@ -1,11 +1,17 @@
 import glob
 import os
+import re
 import subprocess
 import json
 import time
 import shutil
 import threading
+from collections import deque
 from utils.logger import logger
+
+# rsync --info=progress2 의 전체 진행률 줄에서 퍼센트를 뽑는 정규식
+# 예: "  1,234,567,890  87%  123.45MB/s    0:00:05"
+_RSYNC_PCT_RE = re.compile(r'(\d+)%')
 
 # 파티션 레이아웃 (MiB). A/B 슬롯은 8GiB(실측 rootfs ~2.7GB 대비 약 3x 성장 여유).
 # C(복구)는 RAUC 로테이션 밖의 고정 슬롯. OS 영역 합 ≈ 20.5GiB → 32GB 디스크 지원.
@@ -51,6 +57,8 @@ class Installer:
         self.message = ''
         self.progress = 0
         self.error = None
+        # 웹 UI 가 실시간으로 볼 수 있는 설치 로그(최근 N줄 링버퍼).
+        self.log_lines = deque(maxlen=300)
         # 슬롯 복제 원본. 실제 설치에서는 현재 live 시스템 '/'. (테스트에서 다른 rootfs 로 교체 가능)
         self.rsync_source = '/'
 
@@ -93,20 +101,41 @@ class Installer:
             self.message = 'Initializing installation...'
             self.progress = 0
             self.error = None
+            self.log_lines.clear()
 
         thread = threading.Thread(target=self._run_install, args=(target_disk, config))
         thread.start()
         return True, "Installation started"
 
+    def _append_log(self, line):
+        """설치 로그 한 줄을 링버퍼에 누적한다(웹 UI 가 폴링해서 표시)."""
+        line = line.rstrip()
+        if not line:
+            return
+        with self.lock:
+            self.log_lines.append(line)
+
+    def get_log(self):
+        """현재까지의 설치 로그를 리스트로 반환(오래된 → 최신 순)."""
+        with self.lock:
+            return list(self.log_lines)
+
     def _update_status(self, progress, message):
         with self.lock:
             self.progress = progress
             self.message = message
-            logger.info(f"[Installer] {progress}% - {message}")
+            self.log_lines.append(f"[{progress}%] {message}")
+        logger.info(f"[Installer] {progress}% - {message}")
 
     def _run_command(self, cmd):
         logger.info(f"Running: {' '.join(cmd)}")
+        self._append_log(f"$ {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
+        # 성공/실패와 무관하게 출력을 로그에 남겨 진행 상황을 웹에서 볼 수 있게 한다.
+        for stream in (result.stdout, result.stderr):
+            if stream:
+                for ln in stream.splitlines():
+                    self._append_log(ln)
         if result.returncode != 0:
             raise Exception(f"Command failed: {' '.join(cmd)}\nStderr: {result.stderr}")
         return result
@@ -217,7 +246,7 @@ class Installer:
             os.makedirs(f"{target_mnt}/var/lib/lukenasos/data", exist_ok=True)
 
             self._update_status(40, "Copying system files to slot A (This may take a while)...")
-            self._rsync_system(target_mnt)
+            self._rsync_system(target_mnt, 40, 75)
 
             # 5. 설정 파일 구성 (75%)
             self._update_status(75, "Configuring system...")
@@ -267,11 +296,44 @@ class Installer:
             subprocess.run(['umount', '-R', "/mnt/lukenasos_install"], stderr=subprocess.DEVNULL)
             subprocess.run(['umount', '-R', "/mnt/lukenasos_recovery"], stderr=subprocess.DEVNULL)
 
-    def _rsync_system(self, dest_mnt):
-        """현재(live) 시스템(self.rsync_source)을 dest_mnt 로 복제하고 필수 디렉토리를 만든다."""
+    def _rsync_system(self, dest_mnt, start_pct=None, end_pct=None):
+        """현재(live) 시스템(self.rsync_source)을 dest_mnt 로 복제하고 필수 디렉토리를 만든다.
+
+        start_pct~end_pct 가 주어지면 rsync --info=progress2 의 전체 진행률(0~100%)을
+        그 구간에 선형 매핑해 실시간으로 갱신한다(가장 오래 걸리는 복사 단계가 한 자리씩
+        부드럽게 차오른다). 진행률 줄은 설치 로그에도 누적된다.
+        """
         src = self.rsync_source.rstrip('/') + '/'
         rsync_cmd = ['rsync', '-axHAX', '--info=progress2'] + RSYNC_EXCLUDES + [src, f"{dest_mnt}/"]
-        subprocess.run(rsync_cmd, check=True)
+        self._append_log(f"$ {' '.join(rsync_cmd)}")
+
+        # text 모드의 universal-newlines 가 rsync 의 '\r' 진행률 갱신도 줄로 끊어준다.
+        proc = subprocess.Popen(rsync_cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        last_pct = -1
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            m = _RSYNC_PCT_RE.search(line)
+            if m and start_pct is not None and end_pct is not None:
+                rp = int(m.group(1))
+                mapped = start_pct + (end_pct - start_pct) * rp // 100
+                if mapped != last_pct:
+                    last_pct = mapped
+                    with self.lock:
+                        self.progress = mapped
+                        self.message = f"Copying system files... {rp}%"
+                    # 진행률 줄은 '\r' 로 초당 수십 번 갱신된다 → 매핑 % 가 바뀔 때만
+                    # 로그에 남겨 링버퍼가 진행률로만 가득 차 다른 단계 로그를 밀어내지 않게 한다.
+                    self._append_log(line)
+            else:
+                # 진행률이 아닌 줄(시작 안내·전송 요약 등)은 그대로 로그에 남긴다.
+                self._append_log(line)
+        proc.wait()
+        if proc.returncode != 0:
+            raise Exception(f"rsync failed (exit {proc.returncode}) copying to {dest_mnt}")
+
         for d in ['proc', 'sys', 'dev', 'run', 'tmp', 'boot/efi', 'var/lib/lukenasos/data']:
             os.makedirs(f"{dest_mnt}/{d}", exist_ok=True)
 
@@ -285,7 +347,7 @@ class Installer:
         os.makedirs(rec_mnt, exist_ok=True)
         self._run_command(['mount', device, rec_mnt])
         try:
-            self._rsync_system(rec_mnt)
+            self._rsync_system(rec_mnt, 80, 85)
             with open(f"{rec_mnt}/etc/fstab", 'w') as f:
                 f.write(SLOT_FSTAB)
             # 복구 슬롯도 일반 initramfs 로 슬림화(부팅 속도)
