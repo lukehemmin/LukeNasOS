@@ -164,8 +164,10 @@ set -e
 cat <<SERVICE > /etc/systemd/system/lukenasos-banner.service
 [Unit]
 Description=Show LukeNasOS Access Banner
-After=network-online.target
-Wants=network-online.target
+# network-online.target 을 기다리지 않는다: TUI(console_tui.py)는 네트워크 없이도
+# 즉시 동작하고 IP 는 백그라운드 스레드가 획득되는 대로 갱신·표시한다. 과거엔 이 대기
+# 때문에 live 부팅 시 wait-online 타임아웃(~1분)만큼 TUI 표시가 지연됐다.
+After=systemd-user-sessions.service
 # 기존 getty(로그인)와 충돌 방지
 Conflicts=getty@tty1.service
 

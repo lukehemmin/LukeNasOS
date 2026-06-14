@@ -16,6 +16,7 @@ RUN apt-get update && \
     mtools \
     dosfstools \
     rauc \
+    rsync \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
