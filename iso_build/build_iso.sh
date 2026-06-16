@@ -93,6 +93,7 @@ efibootmgr
 docker.io
 iptables
 uidmap
+network-manager
 EOF
 
 # 4.5 OS 버전 파일
@@ -326,6 +327,26 @@ SERVICE
 systemctl enable lukenasos-sshkeygen.service
 EOF
 chmod +x config/hooks/normal/05-install-sshkeygen.hook.chroot
+
+# 5.77 NetworkManager 활성화
+#  설치된 시스템(rauc.slot=A/B/복구)의 네트워크 관리 주체. live-config 는 live 부팅에만
+#  네트워크를 설정하므로, 설치 슬롯에서 NIC 를 자동으로 올릴 주체가 없으면 IP 가 안 잡힌다
+#  (A/B 업데이트로 만든 슬롯에서 192.168.x 가 사라지는 원인).
+#  NetworkManager 가 유선 NIC 를 기본 DHCP 로 관리하고, 사용자가 지정한 연결은
+#  /etc/NetworkManager/system-connections/ 에 저장된다 → persistence.sh 가 이미
+#  /etc/NetworkManager 를 NAS-DATA 에 bind-mount(+ Before=network-pre.target)하므로
+#  네트워크 설정이 슬롯 교체와 무관하게 그대로 유지된다.
+cat <<EOF > config/hooks/normal/06-install-networkmanager.hook.chroot
+#!/bin/bash
+set -e
+
+systemctl enable NetworkManager.service
+
+# network-online.target 대기로 부팅이 최대 ~90초 지연되는 것을 막는다
+# (서버/NAS 는 부팅 완료를 네트워크 online 에 묶을 필요가 없다).
+systemctl disable NetworkManager-wait-online.service || true
+EOF
+chmod +x config/hooks/normal/06-install-networkmanager.hook.chroot
 
 # 5.78 부팅 모드 인지 (boot-mode generator)
 #  커널 cmdline 으로 installer(live)/recovery/system 모드를 판별해 /run/lukenasos/boot-mode 에
