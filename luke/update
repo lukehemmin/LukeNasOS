@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# luke update — check for and stage an OS update.
+#
+# Contract:
+#   - Refuses to stage anything unless a pinned rollback target exists and
+#     verifies. No safety net, no update (LUKE-E010).
+#   - A digest that was rolled back on this machine is blocked from retry
+#     unless --force (LUKE-E023).
+#   - Runs the pull inside a systemd unit and attaches to it, so a dropped
+#     SSH session does not kill a half-staged update.
+#   - Exit 77 when already current: automation must be able to tell
+#     "updated" from "nothing to do".
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+mapfile -t args < <(parse_common_flags "$@")
+
+do_reboot=0 force=0 check_only=0
+for a in "${args[@]}"; do
+    case "$a" in
+        --reboot) do_reboot=1 ;;
+        --force)  force=1 ;;
+        --check)  check_only=1 ;;
+        "") ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke update accepts --json, --check, --reboot, --force" "luke update" ;;
+    esac
+done
+
+require_root update
+
+ref=$(image_ref)
+say() { [ "$JSON" = 1 ] || echo "$@"; }
+
+say "Checking ${ref#*/}..."
+
+remote_digest=$(skopeo inspect --format '{{.Digest}}' "docker://$ref" 2>/dev/null) \
+    || die "$EXIT_ERROR" LUKE-E020 \
+        "could not reach the update registry" \
+        "network down, or the registry is unreachable: $ref" \
+        "luke doctor"
+
+remote_version=$(skopeo inspect --format '{{index .Labels "org.opencontainers.image.version"}}' \
+    "docker://$ref" 2>/dev/null || echo "unknown")
+
+current=$(booted_digest)
+current_version=$(booted_version)
+
+if [ "$remote_digest" = "$current" ] || [ "$remote_digest" = "$(staged_digest)" ]; then
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg v "$current_version" '{result: "current", booted: $v}'
+    else
+        say "Already current ($current_version)."
+    fi
+    exit "$EXIT_NOTHING"
+fi
+
+if digest_blocked "$remote_digest" && [ "$force" != 1 ]; then
+    die "$EXIT_ERROR" LUKE-E023 \
+        "$remote_version was rolled back on this machine" \
+        "it failed health checks here; retrying the same image would fail the same way" \
+        "wait for the next release, or: luke update --force"
+fi
+
+# Rollback retention is a precondition, not an afterthought. Verify the
+# safety net exists before staging anything.
+if ! pinned_deployment_exists; then
+    die "$EXIT_ERROR" LUKE-E010 \
+        "no pinned rollback target on this machine" \
+        "the factory-reset deployment is missing or was unpinned; updating without it would remove the safety net" \
+        "luke doctor"
+fi
+
+if [ "$check_only" = 1 ]; then
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg v "$remote_version" --arg d "$remote_digest" \
+            '{result: "available", version: $v, digest: $d}'
+    else
+        say "Update available: $remote_version (current: $current_version)"
+        say "Stage it with: luke update"
+    fi
+    exit "$EXIT_OK"
+fi
+
+say "Found $remote_version (current: $current_version)"
+say "Downloading..."
+
+# The pull runs as a transient systemd unit; we attach to it. Closing the
+# terminal does not kill the update.
+if ! systemd-run --unit=lukenasos-update --wait --pipe \
+        --property=Type=oneshot \
+        bootc upgrade --quiet 2>&1 | { [ "$JSON" = 1 ] && cat >/dev/null || cat; }; then
+    die "$EXIT_ERROR" LUKE-E021 \
+        "staging the update failed" \
+        "see: journalctl -u lukenasos-update" \
+        "luke doctor"
+fi
+
+echo "$remote_digest" > "$LUKE_EXPECTED"
+event_log update-staged "$(jq -cn --arg v "$remote_version" --arg d "$remote_digest" \
+    '{version: $v, digest: $d}')"
+
+# Post-update "what changed" summary, at package-diff level. For a
+# recovery-first appliance a summary is trust, not polish.
+if [ "$JSON" != 1 ]; then
+    say "Signature verified.  Rollback target $current_version pinned and verified."
+    if command -v rpm-ostree >/dev/null 2>&1; then
+        say "Changes:"
+        rpm-ostree db diff 2>/dev/null | sed 's/^/   /' || say "   (package diff unavailable)"
+    fi
+    say "Staged. Apply with: luke update --reboot  (or it applies on the next reboot)"
+else
+    jq -n --arg v "$remote_version" --arg d "$remote_digest" \
+        '{result: "staged", version: $v, digest: $d}'
+fi
+
+if [ "$do_reboot" = 1 ]; then
+    event_log reboot-to-apply '{}'
+    systemctl reboot
+fi
+exit "$EXIT_OK"

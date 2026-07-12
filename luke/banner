@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# luke banner — generate the console boot banner (the appliance's only home
+# screen). Runs from lukenasos-banner.service on every boot, after
+# boot-check has settled the verdict.
+#
+# Hierarchy is fixed: 1 VERDICT, 2 LAST EVENT (when RECOVERED), 3 VERSION,
+# 4 NEXT. What a user must learn in half a second is whether they are fine,
+# not which version they are on.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+OUT_DIR="/run/issue.d"
+OUT="$OUT_DIR/40-lukenasos.issue"
+mkdir -p "$OUT_DIR"
+
+booted_ver=$(booted_version)
+staged_ver=$(bootc status --json 2>/dev/null | jq -r '.status.staged.image.version // empty')
+
+{
+    echo
+    echo "  LukeNasOS"
+    # NO_COLOR: issue files render on consoles that may not do ANSI well;
+    # symbols carry the meaning.
+    NO_COLOR=1
+    verdict_line | sed 's/^/  /'
+
+    # Factory-reset proof: the first boot after a reset advertises that the
+    # data survived, with the size. That screen is the product.
+    if [ -f "$LUKE_STATE_DIR/reset-proof.json" ]; then
+        size=$(jq -r '.data_size' "$LUKE_STATE_DIR/reset-proof.json")
+        files=$(jq -r '.data_files' "$LUKE_STATE_DIR/reset-proof.json")
+        echo "  Factory reset complete. Your data survived: /data ${size} (${files} files)."
+        rm -f "$LUKE_STATE_DIR/reset-proof.json"
+    fi
+
+    echo "  Version: ${booted_ver}$( [ -n "$staged_ver" ] && echo "  (staged: ${staged_ver}, applies on reboot)" )"
+    echo "  Next:    luke status · luke doctor"
+    echo
+} > "$OUT"
+
+exit 0

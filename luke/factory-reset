@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# luke factory-reset — return the OS to its install-time deployment.
+# /data survives by design; the screen says so before and after.
+#
+# Mechanism (see SPEC.md §"Factory reset"): the install deployment is pinned
+# with `ostree admin pin` at install time, so it can never be garbage
+# collected. Reset = redeploy that pinned commit + clear machine state under
+# /var and /etc, leaving @data untouched. The @seed OCI archive is the
+# disaster-recovery fallback when even the ostree repo is damaged.
+#
+# The destructive verb is long on purpose, and confirmation is typing the
+# hostname, not y/n.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+mapfile -t args < <(parse_common_flags "$@")
+
+assume_yes=0
+for a in "${args[@]}"; do
+    case "$a" in
+        --yes-i-typed-the-hostname) assume_yes=1 ;;   # for the E2E harness only
+        "") ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke factory-reset takes no options" "luke factory-reset" ;;
+    esac
+done
+
+require_root factory-reset
+
+pinned_deployment_exists || die "$EXIT_ERROR" LUKE-E040 \
+    "no pinned install deployment found" \
+    "the factory-reset target is missing; this machine cannot reset safely" \
+    "luke doctor"
+
+DATA_MOUNT="/var/mnt/data"
+data_size="?" data_files="?"
+if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+    data_size=$(du -sh "$DATA_MOUNT" 2>/dev/null | cut -f1 || echo "?")
+    data_files=$(find "$DATA_MOUNT" -xdev -type f 2>/dev/null | wc -l | tr -d ' ')
+fi
+
+hostname=$(hostname)
+
+if [ "$JSON" != 1 ]; then
+    echo "Factory reset will:"
+    echo "   preserved: /data ${data_size} (${data_files} files)"
+    echo "   cleared:   OS config, apps, network settings"
+    echo
+    echo "The OS returns to its install version. Your files are not touched."
+    echo
+fi
+
+if [ "$assume_yes" != 1 ]; then
+    if [ "$JSON" = 1 ]; then
+        die "$EXIT_ERROR" LUKE-E041 \
+            "factory reset needs interactive confirmation" \
+            "--json implies automation, and automation must not reset machines implicitly" \
+            "run interactively, or pass --yes-i-typed-the-hostname in a test harness"
+    fi
+    printf "Type the hostname (%s) to confirm: " "$hostname"
+    read -r answer
+    if [ "$answer" != "$hostname" ]; then
+        echo "Hostname mismatch. Nothing was changed."
+        exit "$EXIT_ERROR"
+    fi
+fi
+
+# Identity capsule: preserving bytes while wiping users, UID/GID maps, share
+# definitions, and SSH host keys leaves data present but inaccessible.
+# Capture what makes the data usable, on the data volume itself.
+CAPSULE="$DATA_MOUNT/.lukenasos"
+mkdir -p "$CAPSULE"
+getent passwd  > "$CAPSULE/passwd.snapshot"    2>/dev/null || true
+getent group   > "$CAPSULE/group.snapshot"     2>/dev/null || true
+cp -a /etc/ssh/ssh_host_*_key* "$CAPSULE/"     2>/dev/null || true
+cp -a /etc/samba/smb.conf "$CAPSULE/"          2>/dev/null || true
+event_log factory-reset-started "$(jq -cn --arg size "$data_size" '{data: $size}')"
+
+# Redeploy the pinned commit. `ostree admin deploy` of the pinned checksum
+# creates a fresh deployment (fresh /etc from the commit's defaults);
+# machine state under /var/lib is cleared selectively below.
+pinned_checksum=$(ostree admin status | awk '/^\*?\s*\S+/ {cs=$NF} /Pinned: yes/ {print cs; exit}' \
+    | tr -d '*() ')
+if [ -z "$pinned_checksum" ]; then
+    # Fallback parse: first pinned deployment line "  fedora <checksum>.N"
+    pinned_checksum=$(ostree admin status | grep -B2 "Pinned: yes" | head -1 | awk '{print $2}' | cut -d. -f1)
+fi
+[ -n "$pinned_checksum" ] || die "$EXIT_ERROR" LUKE-E042 \
+    "could not identify the pinned deployment" \
+    "ostree admin status output did not parse" \
+    "ostree admin status   (then file an issue with the output)"
+
+stateroot=$(ostree admin status | awk '/^\*/ {print $2; exit}' || echo default)
+
+ostree admin deploy --stateroot="${stateroot:-default}" --retain "$pinned_checksum" \
+    || die "$EXIT_ERROR" LUKE-E043 \
+        "deploying the pinned install image failed" \
+        "see: journalctl -b" \
+        "luke doctor"
+
+# Clear app/OS machine state but keep the ostree repo, the event journal,
+# and /data. Containers are redeployed from quadlet units on next boot.
+rm -rf /var/lib/containers/storage 2>/dev/null || true
+
+event_log factory-reset-deployed "$(jq -cn --arg cs "$pinned_checksum" '{checksum: $cs}')"
+# The first boot after reset shows "your data survived" with the size —
+# that screen is the advertisement. Marker consumed by the banner unit.
+echo "{\"data_size\": \"$data_size\", \"data_files\": \"$data_files\"}" \
+    > "$LUKE_STATE_DIR/reset-proof.json"
+
+if [ "$JSON" = 1 ]; then
+    jq -n --arg size "$data_size" '{result: "reset-staged", data_preserved: $size}'
+else
+    echo "${C_OK}${SYM_OK}${C_OFF} Reset staged. Reboot to finish: systemctl reboot"
+    echo "   Your data (${data_size}) is preserved and will be verified on first boot."
+fi
+exit "$EXIT_OK"

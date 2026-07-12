@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# luke boot-check — settle the verdict early in boot, before the banner.
+#
+# The RECOVERED flow: greenboot's red script records the impending rollback
+# (cause, failing units, version) in pending-rollback.json — /var/lib is
+# shared across deployments, so the record survives the rollback itself.
+# On the next boot, this script decides what actually happened:
+#
+#   pending exists, booted != failed digest  → the rollback happened.
+#     Persist last-rollback.json, block the failed digest from retry,
+#     log the event. The banner shows ▲ RECOVERED with cause and time.
+#   pending exists, booted == failed digest  → still on the bad version
+#     (rollback did not happen; e.g. boot_counter exhausted differently).
+#     Leave pending in place; greenboot will fail again and DEGRADED shows.
+#   no pending → nothing to settle.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+PENDING="$LUKE_STATE_DIR/pending-rollback.json"
+
+[ -f "$PENDING" ] || exit 0
+
+failed_digest=$(jq -r '.from_digest // empty' "$PENDING")
+booted=$(booted_digest)
+
+if [ -n "$failed_digest" ] && [ "$booted" != "$failed_digest" ]; then
+    to_ver=$(booted_version)
+    jq --arg to "$to_ver" '. + {to_version: $to}' "$PENDING" > "$LUKE_ROLLBACK_CAUSE"
+    rm -f "$PENDING" "$LUKE_STATE_DIR/recovered-acked"
+    block_digest "$failed_digest"
+    event_log auto-rollback "$(cat "$LUKE_ROLLBACK_CAUSE")"
+    # The expected digest is now stale; the machine is deliberately on the
+    # old version. Clear it so status does not mislabel this as a power cut.
+    rm -f "$LUKE_EXPECTED"
+fi
+
+exit 0
