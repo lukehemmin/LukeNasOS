@@ -246,16 +246,26 @@ phase_4_auto_rollback() {
     vm_root luke update --json >/dev/null
     vm_root systemctl reboot || true
     kill_vm
-    # greenboot fails v2-broken, GRUB counts down 2 boots, previous
-    # deployment boots. Give the whole dance time.
-    boot_vm; wait_ssh
-    assert_eq "verdict" "RECOVERED" "$(vm_root luke status --json | jq -r .verdict)"
+    # greenboot fails v2-broken, GRUB counts down the boot attempts, the
+    # previous deployment boots. sshd may answer briefly during the doomed
+    # intermediate boots, so a single wait_ssh+assert races the dance:
+    # poll until the verdict settles on RECOVERED (or the deadline passes).
+    boot_vm
+    local deadline=$(( SECONDS + ${ROLLBACK_DANCE_TIMEOUT:-3600} ))
+    local verdict=""
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        verdict=$(vm_root luke status --json 2>/dev/null | jq -r .verdict 2>/dev/null || echo "")
+        [ "$verdict" = "RECOVERED" ] && break
+        sleep 20
+    done
+    assert_eq "verdict" "RECOVERED" "$verdict"
     assert_eq "booted after recovery" "v2" "$(vm_root luke status --json | jq -r .booted)"
     # The failed digest is blocked from retry:
     local rc=0; vm_root luke update --json >/dev/null 2>&1 || rc=$?
     assert_eq "blocked retry exit code" "1" "$rc"
-    # Data still there:
-    assert_eq "data file" "precious" "$(vm cat /data/share/family-photos.txt)"
+    # Data still there (read as root: the samba container may have narrowed
+    # the share directory's permissions):
+    assert_eq "data file" "precious" "$(vm_root cat /data/share/family-photos.txt)"
 }
 
 phase_5_factory_reset() {
@@ -265,7 +275,7 @@ phase_5_factory_reset() {
     kill_vm
     boot_vm; wait_ssh
     assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
-    assert_eq "data survived reset" "precious" "$(vm cat /data/share/family-photos.txt)"
+    assert_eq "data survived reset" "precious" "$(vm_root cat /data/share/family-photos.txt)"
     # And through the share (the NAS still works, not just the bytes):
     if vm command -v smbclient >/dev/null 2>&1; then
         vm smbclient //localhost/share -U luke%lukenasos -c "'get family-photos.txt /tmp/via-share.txt'"

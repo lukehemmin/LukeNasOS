@@ -13,7 +13,7 @@ ENGINE     ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/
 .PHONY: build demo lint check clean registry
 
 build:
-	$(ENGINE) build -t $(IMAGE):$(TAG) .
+	$(ENGINE) build -f Containerfile -t $(IMAGE):$(TAG) .
 
 # Local registry for lifecycle testing. CI never pulls from GHCR in tests:
 # unpublished commits must be testable, and signature-rejection is only
