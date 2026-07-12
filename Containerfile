@@ -8,7 +8,8 @@
 # NEVER bake credentials into this file. First-boot credentials come from
 # the installer (installer/luke.ks). CI greps for leaked keys.
 
-ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:42
+# fedora-bootc:42 as of 2026-07-12. The scheduled rebuild workflow proposes bumps.
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:077182b6ba853b3348d0bede602ac30b9e6568c6422bcf0654de5af96f19b9c3
 FROM ${BASE_IMAGE}
 
 ARG VERSION=0.1.0-dev
@@ -23,7 +24,7 @@ RUN dnf install -y \
         greenboot greenboot-default-health-checks \
         jq skopeo btrfs-progs \
     && dnf clean all \
-    && rm -rf /var/cache/dnf /var/lib/dnf
+    && rm -rf /var/cache/* /var/lib/dnf /var/log/* /run/dnf
 
 # ── the luke CLI ──────────────────────────────────────────────────────────
 COPY luke/ /usr/libexec/lukenasos/

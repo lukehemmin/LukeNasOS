@@ -25,7 +25,7 @@ demo: build
 	scripts/demo-lifecycle.sh all
 
 lint:
-	shellcheck luke/* scripts/*.sh config/greenboot/check/required/*.sh config/greenboot/red.d/*.sh
+	shellcheck -x -P luke luke/* scripts/*.sh config/greenboot/check/required/*.sh config/greenboot/red.d/*.sh
 
 check: lint
 	scripts/demo-lifecycle.sh verify-static

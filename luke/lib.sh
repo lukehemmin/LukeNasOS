@@ -18,12 +18,18 @@ LUKE_STATE_DIR="${LUKE_STATE_DIR:-/var/lib/lukenasos}"
 LUKE_CONF="${LUKE_CONF:-/etc/lukenasos/luke.conf}"
 LUKE_EVENTS="$LUKE_STATE_DIR/events.jsonl"
 LUKE_BLOCKLIST="$LUKE_STATE_DIR/blocked-digests"
+# Consumed by the sourcing verbs.
+# shellcheck disable=SC2034
 LUKE_EXPECTED="$LUKE_STATE_DIR/expected-digest"
 LUKE_ROLLBACK_CAUSE="$LUKE_STATE_DIR/last-rollback.json"
 
+# Consumed by the sourcing verbs, not here.
+# shellcheck disable=SC2034
 EXIT_OK=0
 EXIT_ERROR=1
+# shellcheck disable=SC2034
 EXIT_USAGE=2
+# shellcheck disable=SC2034
 EXIT_NOTHING=77
 
 JSON=0
@@ -38,15 +44,17 @@ fi
 SYM_OK="●"; SYM_RECOVERED="▲"; SYM_DEGRADED="✕"
 
 parse_common_flags() {
-    # Strips --json from the argument list; echoes the rest back.
-    local out=()
+    # Strips --json from the argument list, setting JSON=1. Must run in the
+    # caller's shell (NOT a subshell/process substitution) or the JSON flag
+    # is lost. Remaining args land in PARSED_ARGS.
+    PARSED_ARGS=()
+    local a
     for a in "$@"; do
         case "$a" in
             --json) JSON=1 ;;
-            *) out+=("$a") ;;
+            *) PARSED_ARGS+=("$a") ;;
         esac
     done
-    printf '%s\n' "${out[@]:-}"
 }
 
 json_escape() {

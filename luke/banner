@@ -20,9 +20,9 @@ staged_ver=$(bootc status --json 2>/dev/null | jq -r '.status.staged.image.versi
 {
     echo
     echo "  LukeNasOS"
-    # NO_COLOR: issue files render on consoles that may not do ANSI well;
-    # symbols carry the meaning.
-    NO_COLOR=1
+    # Issue files render on consoles that may not do ANSI well; running
+    # under systemd there is no tty, so lib.sh already disabled color and
+    # the symbols carry the meaning.
     verdict_line | sed 's/^/  /'
 
     # Factory-reset proof: the first boot after a reset advertises that the

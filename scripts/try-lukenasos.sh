@@ -14,6 +14,7 @@ missing=()
 for bin in qemu-system-x86_64 qemu-img curl jq; do
     command -v "$bin" >/dev/null || missing+=("$bin")
 done
+# shellcheck disable=SC2012
 ovmf=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE*.fd 2>/dev/null | head -1 || true)
 [ -n "$ovmf" ] || missing+=(edk2-ovmf)
 if [ "${#missing[@]}" -gt 0 ]; then

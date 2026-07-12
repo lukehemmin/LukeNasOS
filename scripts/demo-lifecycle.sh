@@ -111,6 +111,7 @@ EOF
 }
 
 qemu_common_args() {
+    # shellcheck disable=SC2012
     echo "-machine q35 -cpu max -m $QEMU_RAM -smp 2 \
       -drive if=pflash,format=raw,readonly=on,file=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE*.fd 2>/dev/null | head -1) \
       -drive file=$DISK,format=qcow2,if=virtio \
@@ -147,8 +148,10 @@ boot_vm() {
 }
 
 kill_vm() {
-    [ -n "$VM_PID" ] && kill "$VM_PID" 2>/dev/null || true
-    wait "$VM_PID" 2>/dev/null || true
+    if [ -n "$VM_PID" ]; then
+        kill "$VM_PID" 2>/dev/null || true
+        wait "$VM_PID" 2>/dev/null || true
+    fi
     VM_PID=""
 }
 
@@ -258,14 +261,21 @@ phase_6_power_loss() {
 verify_static() {
     say "static verification (no VM)"
     bash -n "$REPO_ROOT"/luke/* "$REPO_ROOT"/scripts/*.sh
-    command -v shellcheck >/dev/null && shellcheck "$REPO_ROOT"/luke/luke "$REPO_ROOT"/luke/status \
-        "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
-        "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
-        "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
-        "$REPO_ROOT"/config/greenboot/red.d/*.sh
+    if command -v shellcheck >/dev/null; then
+        shellcheck -x -P "$REPO_ROOT/luke" \
+            "$REPO_ROOT"/luke/luke "$REPO_ROOT"/luke/status \
+            "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
+            "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
+            "$REPO_ROOT"/luke/lib.sh \
+            "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
+            "$REPO_ROOT"/config/greenboot/red.d/*.sh
+    fi
     # No credentials in the image recipe — the classic self-own.
-    ! grep -rEn 'BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}' \
-        "$REPO_ROOT/Containerfile" "$REPO_ROOT/config" "$REPO_ROOT/luke"
+    if grep -rEn 'BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}' \
+        "$REPO_ROOT/Containerfile" "$REPO_ROOT/config" "$REPO_ROOT/luke"; then
+        echo "CREDENTIAL MATERIAL FOUND in the image recipe" >&2
+        return 1
+    fi
     echo "static checks passed"
 }
 

@@ -14,13 +14,12 @@
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
-mapfile -t args < <(parse_common_flags "$@")
+parse_common_flags "$@"
 
 assume_yes=0
-for a in "${args[@]}"; do
+for a in "${PARSED_ARGS[@]}"; do
     case "$a" in
         --yes-i-typed-the-hostname) assume_yes=1 ;;   # for the E2E harness only
-        "") ;;
         *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
              "luke factory-reset takes no options" "luke factory-reset" ;;
     esac

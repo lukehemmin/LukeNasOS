@@ -5,10 +5,9 @@
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
-mapfile -t args < <(parse_common_flags "$@")
-for a in "${args[@]}"; do
+parse_common_flags "$@"
+for a in "${PARSED_ARGS[@]}"; do
     case "$a" in
-        "") ;;
         *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
              "luke doctor accepts --json" "luke doctor" ;;
     esac
