@@ -260,7 +260,9 @@ phase_3_apply() {
 
 phase_4_auto_rollback() {
     say "phase 4: broken update rolls back hands-off"
-    vm_root sed -i "s|lukenasos:v2|lukenasos:v2-broken|" /etc/lukenasos/luke.conf
+    # Embedded single quotes: ssh joins the argv with spaces and the remote
+    # shell re-parses it, so an unquoted | becomes a pipeline over there.
+    vm_root sed -i "'s|lukenasos:v2|lukenasos:v2-broken|'" /etc/lukenasos/luke.conf
     vm_root luke update --json >/dev/null
     # Clean reboot so the broken deployment finalizes, then ride the dance:
     # greenboot fails v2-broken, the guest reboots (QEMU exits each time
@@ -302,7 +304,7 @@ phase_5_factory_reset() {
 phase_6_power_loss() {
     say "phase 6: power cuts during and after staging"
     # 6a: cut DURING staging — machine must boot the old version cleanly.
-    vm_root sed -i "s|lukenasos:v2-broken|lukenasos:v2|" /etc/lukenasos/luke.conf
+    vm_root sed -i "'s|lukenasos:v2-broken|lukenasos:v2|'" /etc/lukenasos/luke.conf
     vm_root systemd-run --unit=luke-bg-update luke update --json || true
     sleep 3
     kill_vm   # yank the cord mid-pull
@@ -361,6 +363,20 @@ all() {
     say "LIFECYCLE COMPLETE — install, update, break, auto-rollback, reset: all green"
 }
 
+resume_from_4() {
+    # Debug helper: continue on an existing disk that already passed
+    # phases 1-3 (booted v2, data file written). Saves a reinstall while
+    # iterating on the later phases.
+    trap kill_vm EXIT
+    registry_up
+    boot_vm; wait_ssh
+    phase_4_auto_rollback
+    phase_5_factory_reset
+    phase_6_power_loss
+    kill_vm
+    say "RESUME COMPLETE — phases 4-6 green"
+}
+
 case "${1:-all}" in
     registry-up)    registry_up ;;
     build-variants) registry_up; build_variants ;;
@@ -368,5 +384,6 @@ case "${1:-all}" in
     verify-static)  verify_static ;;
     clean)          clean ;;
     all)            all ;;
-    *) echo "usage: $0 <registry-up|build-variants|install|all|verify-static|clean>" >&2; exit 2 ;;
+    resume-from-4)  resume_from_4 ;;
+    *) echo "usage: $0 <registry-up|build-variants|install|all|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
 esac
