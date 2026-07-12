@@ -108,6 +108,14 @@ RCEOF
 mkdir -p /home/luke/.ssh
 echo '$(cat "$BUILD_DIR/test-key.pub")' > /home/luke/.ssh/authorized_keys
 chown -R luke:luke /home/luke/.ssh && chmod 700 /home/luke/.ssh && chmod 600 /home/luke/.ssh/authorized_keys
+# TEST ONLY — the production kickstart expires the password so first login
+# forces a change; that PAM gate also blocks key-based automation, and sudo
+# would prompt for the expired password. Un-expire and grant NOPASSWD so
+# the harness can drive the machine. (Verified live: without this, ssh -i
+# gets "Password change required but no TTY available".)
+chage -d "\$(date +%Y-%m-%d)" luke
+echo 'luke ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/luke-test
+chmod 0440 /etc/sudoers.d/luke-test
 # Point updates at the host's local registry (10.0.2.2 = QEMU user-net host)
 sed -i 's|IMAGE_REF=.*|IMAGE_REF=10.0.2.2:5000/lukenasos:v2|' /etc/lukenasos/luke.conf
 echo '[[registry]]
