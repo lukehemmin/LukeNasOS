@@ -17,10 +17,13 @@ Image=ghcr.io/servercontainers/samba:latest
 ContainerName=lukenasos-samba
 Network=host
 Volume=/var/mnt/data/share:/share:Z
+# Values with spaces MUST be quoted: quadlet splits Environment= on
+# whitespace and podman rejects bare tokens like `=` (surfaced as
+# "invalid variable" and a 125 crash loop on first boot).
 Environment=SAMBA_CONF_LOG_LEVEL=1
 Environment=ACCOUNT_luke=changeme-on-first-login
 Environment=UID_luke=1000
-Environment=SAMBA_VOLUME_CONFIG_share=[share]; path=/share; valid users = luke; guest ok = no; read only = no; browseable = yes
+Environment="SAMBA_VOLUME_CONFIG_share=[share]; path=/share; valid users = luke; guest ok = no; read only = no; browseable = yes"
 
 [Service]
 Restart=on-failure

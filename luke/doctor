@@ -73,20 +73,24 @@ fi
 
 # 5. Space. qgroups do not stop metadata exhaustion, so check unallocated
 #    space, not just free bytes. A full pool makes /var unwritable and kills
-#    the 'never dies' promise.
-if command -v btrfs >/dev/null 2>&1 && btrfs filesystem usage / >/dev/null 2>&1; then
-    unalloc=$(btrfs filesystem usage -b / 2>/dev/null \
+#    the 'never dies' promise. On an ostree/composefs system / is a
+#    read-only overlay whose df numbers are meaningless — the real pool is
+#    at /sysroot.
+POOL=/sysroot
+mountpoint -q "$POOL" 2>/dev/null || POOL=/
+if command -v btrfs >/dev/null 2>&1 && btrfs filesystem usage -b "$POOL" >/dev/null 2>&1; then
+    unalloc=$(btrfs filesystem usage -b "$POOL" 2>/dev/null \
         | awk '/unallocated:/ {print $3; exit}')
     if [ -n "$unalloc" ] && [ "$unalloc" -lt $((2 * 1024 * 1024 * 1024)) ] 2>/dev/null; then
         check "disk space" FAIL "under 2 GiB unallocated btrfs space — updates may fail" \
-            "delete data or add a disk; then: sudo btrfs balance start -dusage=50 /"
+            "delete data or add a disk; then: sudo btrfs balance start -dusage=50 $POOL"
     else
         check "disk space" ok "unallocated space healthy"
     fi
 else
-    avail=$(df --output=avail -B1 / 2>/dev/null | tail -1 | tr -d ' ')
+    avail=$(df --output=avail -B1 "$POOL" 2>/dev/null | tail -1 | tr -d ' ')
     if [ -n "$avail" ] && [ "$avail" -lt $((2 * 1024 * 1024 * 1024)) ]; then
-        check "disk space" FAIL "under 2 GiB free on /" "free space, then re-run luke doctor"
+        check "disk space" FAIL "under 2 GiB free on $POOL" "free space, then re-run luke doctor"
     else
         check "disk space" ok "free space healthy"
     fi

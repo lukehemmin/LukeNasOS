@@ -85,11 +85,21 @@ fi
 say "Found $remote_version (current: $current_version)"
 say "Downloading..."
 
+# IMAGE_REF is authoritative: if the machine's bootc origin points at a
+# different ref (user edited luke.conf, or a test registry moves tags),
+# `bootc upgrade` would silently track the old ref — switch instead.
+origin_ref=$(bootc status --json 2>/dev/null | jq -r '.status.booted.image.image.image // empty')
+if [ -n "$origin_ref" ] && [ "$origin_ref" != "$ref" ]; then
+    stage_cmd=(bootc switch --quiet "$ref")
+else
+    stage_cmd=(bootc upgrade --quiet)
+fi
+
 # The pull runs as a transient systemd unit; we attach to it. Closing the
 # terminal does not kill the update.
 if ! systemd-run --unit=lukenasos-update --wait --pipe \
         --property=Type=oneshot \
-        bootc upgrade --quiet 2>&1 | { [ "$JSON" = 1 ] && cat >/dev/null || cat; }; then
+        "${stage_cmd[@]}" 2>&1 | { [ "$JSON" = 1 ] && cat >/dev/null || cat; }; then
     die "$EXIT_ERROR" LUKE-E021 \
         "staging the update failed" \
         "see: journalctl -u lukenasos-update" \
