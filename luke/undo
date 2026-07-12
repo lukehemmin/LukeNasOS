@@ -50,10 +50,12 @@ fi
 
 target_ver=$(bootc status --json | jq -r '.status.rollback.image.version // "previous"')
 
-bootc rollback --quiet \
+# No --quiet here: bootc rollback does not take it (verified on bootc 1.x —
+# passing it is an argument error that masqueraded as a rollback failure).
+bootc rollback >/dev/null \
     || die "$EXIT_ERROR" LUKE-E033 \
         "bootc rollback failed" \
-        "see: journalctl -b -u bootc-fetch-apply-updates" \
+        "see: journalctl -b" \
         "luke doctor"
 
 event_log undo "$(jq -cn --arg d "$target" --arg v "$target_ver" '{digest: $d, version: $v}')"
