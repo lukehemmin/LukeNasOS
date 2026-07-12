@@ -1,0 +1,14 @@
+[Unit]
+Description=LukeNasOS boot verdict (RECOVERED detection, digest blocking)
+Documentation=https://github.com/lukehemmin/LukeNasOS
+After=local-fs.target
+Before=lukenasos-banner.service
+ConditionPathExists=/usr/libexec/lukenasos/boot-check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/lukenasos/boot-check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

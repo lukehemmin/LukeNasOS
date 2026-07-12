@@ -1,0 +1,8 @@
+[Unit]
+Description=btrfs scrub of the root pool
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/btrfs scrub start -B /sysroot
+Nice=19
+IOSchedulingClass=idle

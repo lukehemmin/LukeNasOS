@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly btrfs scrub (data integrity is part of the recovery story)
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

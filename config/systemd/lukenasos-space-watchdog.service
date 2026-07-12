@@ -1,0 +1,12 @@
+[Unit]
+Description=LukeNasOS unallocated-space watchdog (ENOSPC defense, layer 2)
+
+[Service]
+Type=oneshot
+# Same floor logic as the greenboot check, but running continuously so the
+# user hears about pressure before a reboot turns it into a failed boot.
+ExecStart=/usr/bin/bash -c '\
+  unalloc=$(btrfs filesystem usage -b / 2>/dev/null | awk "/unallocated:/ {print \$3; exit}"); \
+  if [ -n "$unalloc" ] && [ "$unalloc" -lt $((2*1024*1024*1024)) ]; then \
+    echo "lukenasos: btrfs unallocated space low (${unalloc}B) — run luke doctor" | systemd-cat -p warning -t lukenasos; \
+  fi'

@@ -1,0 +1,15 @@
+# The @data subvolume, mounted where the bootc contract allows machine-local
+# mounts. /data is a symlink here (shipped in the image). A new top-level
+# directory would be outside the image contract; /var/mnt is the convention.
+[Unit]
+Description=LukeNasOS user data (@data subvolume)
+Documentation=https://github.com/lukehemmin/LukeNasOS
+
+[Mount]
+What=LABEL=lukenasos-root
+Where=/var/mnt/data
+Type=btrfs
+Options=subvol=@data,compress=zstd:1,noatime
+
+[Install]
+WantedBy=local-fs.target

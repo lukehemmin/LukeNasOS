@@ -1,0 +1,30 @@
+# The M1 NAS slice: one Samba container serving /data. Quadlet unit —
+# podman generates samba.service from this at boot.
+#
+# This is the demo's protagonist: a file written through this share must
+# survive update → deliberate break → automatic rollback → factory reset.
+# Container state lives on @data (via /var/mnt/data), so a factory reset
+# that wipes OS state does not touch the share's contents.
+
+[Unit]
+Description=LukeNasOS Samba share (M1 NAS slice)
+After=var-mnt-data.mount
+Requires=var-mnt-data.mount
+
+[Container]
+# TODO(M1): pin by digest in CI before the first release.
+Image=ghcr.io/servercontainers/samba:latest
+ContainerName=lukenasos-samba
+Network=host
+Volume=/var/mnt/data/share:/share:Z
+Environment=SAMBA_CONF_LOG_LEVEL=1
+Environment=ACCOUNT_luke=changeme-on-first-login
+Environment=UID_luke=1000
+Environment=SAMBA_VOLUME_CONFIG_share=[share]; path=/share; valid users = luke; guest ok = no; read only = no; browseable = yes
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
