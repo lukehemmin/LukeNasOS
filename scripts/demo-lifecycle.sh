@@ -56,9 +56,10 @@ build_variants() {
     # deliberate bad update that proves automatic rollback.
     say "building v1, v2, v2-broken"
     cd "$REPO_ROOT"
-    "$ENGINE" build --build-arg VERSION=v1 -t "$REGISTRY/lukenasos:v1" .
+    # -f Containerfile: podman finds it by convention, docker does not.
+    "$ENGINE" build -f Containerfile --build-arg VERSION=v1 -t "$REGISTRY/lukenasos:v1" .
 
-    "$ENGINE" build --build-arg VERSION=v2 -t "$REGISTRY/lukenasos:v2" .
+    "$ENGINE" build -f Containerfile --build-arg VERSION=v2 -t "$REGISTRY/lukenasos:v2" .
 
     local ctx
     ctx=$(mktemp -d)
@@ -69,7 +70,7 @@ RUN printf '#!/usr/bin/env bash\necho "FAIL: deliberate M1 demo failure" >&2\nex
         > /etc/greenboot/check/required.d/99-deliberately-broken.sh \
     && chmod 0755 /etc/greenboot/check/required.d/99-deliberately-broken.sh
 EOF
-    "$ENGINE" build -t "$REGISTRY/lukenasos:v2-broken" "$ctx"
+    "$ENGINE" build -f "$ctx/Containerfile" -t "$REGISTRY/lukenasos:v2-broken" "$ctx"
     rm -rf "$ctx"
 
     for tag in v1 v2 v2-broken; do
@@ -92,6 +93,16 @@ make_oemdrv() {
     sed -e "s|ghcr.io/lukehemmin/lukenasos:stable|10.0.2.2:5000/lukenasos:v1|" \
         "$REPO_ROOT/installer/luke.ks" > "$ks"
     cat >> "$ks" <<EOF
+
+%pre
+# The installer environment must accept the plain-HTTP CI registry before
+# ostreecontainer pulls from it.
+cat >> /etc/containers/registries.conf <<'RCEOF'
+[[registry]]
+location = "10.0.2.2:5000"
+insecure = true
+RCEOF
+%end
 
 %post --erroronfail
 mkdir -p /home/luke/.ssh
@@ -130,13 +141,29 @@ install_vm() {
     mkdir -p "$BUILD_DIR"
     rm -f "$DISK"
     qemu-img create -f qcow2 "$DISK" "$DISK_SIZE" >/dev/null
+
+    # Direct kernel boot: forces a serial text install (visible in CI logs
+    # and on TCG-only hosts) and passes inst.ks explicitly — no ISO
+    # remastering. -no-reboot matters: the kickstart ends in `reboot`, and
+    # with -kernel args a reboot would start the installer again.
+    local kdir="$BUILD_DIR/isoboot"
+    mkdir -p "$kdir"
+    [ -f "$kdir/vmlinuz" ] || xorriso -osirrox on -indev "$NETINST_ISO" \
+        -extract /images/pxeboot/vmlinuz "$kdir/vmlinuz" \
+        -extract /images/pxeboot/initrd.img "$kdir/initrd.img"
+    local isolabel
+    isolabel=$(blkid -o value -s LABEL "$NETINST_ISO" 2>/dev/null \
+        || xorriso -indev "$NETINST_ISO" -pvd_info 2>/dev/null \
+           | awk -F': *' '/Volume Id/ {print $2}')
+
     # shellcheck disable=SC2046
-    timeout 90m qemu-system-x86_64 $(qemu_common_args) \
+    timeout "${INSTALL_TIMEOUT:-90m}" qemu-system-x86_64 $(qemu_common_args) \
+        -kernel "$kdir/vmlinuz" -initrd "$kdir/initrd.img" \
+        -append "inst.stage2=hd:LABEL=$isolabel inst.ks=hd:LABEL=OEMDRV:/ks.cfg inst.text console=ttyS0" \
         -drive file="$NETINST_ISO",media=cdrom \
         -drive file="$BUILD_DIR/oemdrv.img",format=raw,if=virtio \
-        -boot d
-    # kickstart says `reboot`; QEMU exits when the installed system halts the
-    # cdrom boot. The disk now contains LukeNasOS v1.
+        -no-reboot
+    # QEMU exits at the kickstart's `reboot`. The disk now contains v1.
 }
 
 VM_PID=""
