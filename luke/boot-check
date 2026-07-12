@@ -19,6 +19,17 @@ source "$(dirname "$0")/lib.sh"
 
 PENDING="$LUKE_STATE_DIR/pending-rollback.json"
 
+# If we booted the digest a previous `luke update` staged, the update is
+# applied: close the loop so status stops tracking it, and record the event.
+if [ -f "$LUKE_EXPECTED" ]; then
+    expected_digest=$(awk '{print $1}' "$LUKE_EXPECTED")
+    if [ -n "$expected_digest" ] && [ "$(booted_digest)" = "$expected_digest" ]; then
+        event_log update-applied "$(jq -cn --arg d "$expected_digest" --arg v "$(booted_version)" \
+            '{digest: $d, version: $v}')"
+        rm -f "$LUKE_EXPECTED"
+    fi
+fi
+
 [ -f "$PENDING" ] || exit 0
 
 failed_digest=$(jq -r '.from_digest // empty' "$PENDING")

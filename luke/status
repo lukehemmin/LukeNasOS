@@ -26,13 +26,18 @@ rollback_ver=$(jq -r '.status.rollback.image.version // empty' <<<"$bootc_json")
 verdict=$(current_verdict)
 
 # Power-cut-after-staging detection: a staged deployment is finalized on
-# clean shutdown only. If we booted with a stale staged deployment from a
-# previous boot, the update was staged but never applied — say so, or the
-# user concludes the update "didn't take" and retries forever.
+# clean shutdown only. If a staged deployment from a PREVIOUS boot is still
+# here, the machine went down before finalizing — say so, or the user
+# concludes the update "didn't take" and retries forever. A deployment
+# staged during THIS boot is normal and gets no warning (boot ids differ).
 stale_staged=""
 if [ -n "$staged_ver" ] && [ -f "$LUKE_EXPECTED" ]; then
-    expected=$(cat "$LUKE_EXPECTED")
-    if [ "$booted_dig" != "$expected" ] && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
+    expected_digest=$(awk '{print $1}' "$LUKE_EXPECTED")
+    expected_boot=$(awk '{print $2}' "$LUKE_EXPECTED")
+    current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo current)
+    if [ "$booted_dig" != "$expected_digest" ] \
+        && [ -n "$expected_boot" ] && [ "$expected_boot" != "$current_boot" ] \
+        && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
         stale_staged="yes"
     fi
 fi

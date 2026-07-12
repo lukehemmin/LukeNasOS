@@ -106,7 +106,10 @@ if ! systemd-run --unit=lukenasos-update --wait --pipe \
         "luke doctor"
 fi
 
-echo "$remote_digest" > "$LUKE_EXPECTED"
+# Record the staged digest WITH the boot id that staged it, so status can
+# tell "staged this boot, pending reboot" (normal) from "staged in a
+# previous boot that shut down before finalizing" (power cut).
+echo "$remote_digest $(cat /proc/sys/kernel/random/boot_id)" > "$LUKE_EXPECTED"
 event_log update-staged "$(jq -cn --arg v "$remote_version" --arg d "$remote_digest" \
     '{version: $v, digest: $d}')"
 
