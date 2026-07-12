@@ -177,9 +177,29 @@ install_vm() {
 VM_PID=""
 boot_vm() {
     say "booting VM"
+    # -no-reboot: QEMU exits when the guest completes a clean shutdown or
+    # reboot. That exit is the proof the shutdown finished — which is when
+    # ostree finalizes a staged deployment. Never SIGTERM a VM you expect
+    # to finalize an update; that is a power cut.
     # shellcheck disable=SC2046
-    qemu-system-x86_64 $(qemu_common_args) -boot c &
+    qemu-system-x86_64 $(qemu_common_args) -boot c -no-reboot &
     VM_PID=$!
+}
+
+reboot_vm() {
+    # Clean reboot: ask the guest, then wait for QEMU to exit on its own.
+    vm_root systemctl reboot || true
+    wait "$VM_PID" 2>/dev/null || true
+    VM_PID=""
+    boot_vm
+}
+
+ensure_vm() {
+    # The greenboot dance reboots the guest repeatedly; with -no-reboot
+    # each reboot exits QEMU. Restart it so the dance can continue.
+    if [ -z "$VM_PID" ] || ! kill -0 "$VM_PID" 2>/dev/null; then
+        boot_vm
+    fi
 }
 
 kill_vm() {
@@ -233,9 +253,7 @@ phase_2_stage_update() {
 
 phase_3_apply() {
     say "phase 3: reboot applies v2"
-    vm_root systemctl reboot || true
-    kill_vm 2>/dev/null || true
-    boot_vm; wait_ssh
+    reboot_vm; wait_ssh
     assert_eq "booted" "v2" "$(vm_root luke status --json | jq -r .booted)"
     assert_eq "verdict" "OK" "$(vm_root luke status --json | jq -r .verdict)"
 }
@@ -244,16 +262,16 @@ phase_4_auto_rollback() {
     say "phase 4: broken update rolls back hands-off"
     vm_root sed -i "s|lukenasos:v2|lukenasos:v2-broken|" /etc/lukenasos/luke.conf
     vm_root luke update --json >/dev/null
-    vm_root systemctl reboot || true
-    kill_vm
-    # greenboot fails v2-broken, GRUB counts down the boot attempts, the
-    # previous deployment boots. sshd may answer briefly during the doomed
-    # intermediate boots, so a single wait_ssh+assert races the dance:
-    # poll until the verdict settles on RECOVERED (or the deadline passes).
-    boot_vm
+    # Clean reboot so the broken deployment finalizes, then ride the dance:
+    # greenboot fails v2-broken, the guest reboots (QEMU exits each time
+    # under -no-reboot — restart it), GRUB's counter runs out, the previous
+    # deployment boots. sshd may answer briefly during the doomed
+    # intermediate boots, so poll until the verdict settles on RECOVERED.
+    reboot_vm
     local deadline=$(( SECONDS + ${ROLLBACK_DANCE_TIMEOUT:-3600} ))
     local verdict=""
     while [ "$SECONDS" -lt "$deadline" ]; do
+        ensure_vm
         verdict=$(vm_root luke status --json 2>/dev/null | jq -r .verdict 2>/dev/null || echo "")
         [ "$verdict" = "RECOVERED" ] && break
         sleep 20
@@ -271,9 +289,7 @@ phase_4_auto_rollback() {
 phase_5_factory_reset() {
     say "phase 5: factory reset preserves /data"
     vm_root luke factory-reset --yes-i-typed-the-hostname
-    vm_root systemctl reboot || true
-    kill_vm
-    boot_vm; wait_ssh
+    reboot_vm; wait_ssh
     assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
     assert_eq "data survived reset" "precious" "$(vm_root cat /data/share/family-photos.txt)"
     # And through the share (the NAS still works, not just the bytes):
