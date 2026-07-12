@@ -1,7 +1,26 @@
 # LukeNasOS
 
-LukeNasOS is an immutable, atomic-update Linux distribution (ostree + btrfs + systemd)
-targeting x86_64 and ARM64. See ARCHITECTURE.md, SPEC.md, and BUILD.md for design docs.
+LukeNasOS is a recovery-first personal NAS: a bootc-derived immutable OS with atomic
+updates, hands-off automatic rollback, and a data-preserving factory reset. See
+ARCHITECTURE.md, SPEC.md, and BUILD.md.
+
+## Language policy (applies to every agent, including subagents)
+
+**Write English. Speak Korean.**
+
+- English: all files (code, comments, docs, commit messages, PR descriptions), all product
+  output (CLI text, error messages, banners), all planning and review artifacts, and your
+  internal reasoning.
+- Korean: only when addressing the maintainer directly in chat, including the text of any
+  question you ask them.
+
+Reason: this is an open-source project for the global self-hosting community. Mixed-language
+artifacts hurt credibility, and English error strings must be searchable so users find
+existing issues instead of filing duplicates. The maintainer is Korean and prefers to
+converse in Korean; that is a conversation preference, not a documentation one.
+
+When delegating to a subagent, restate this rule in the delegation prompt. A fresh agent has
+no memory of it.
 
 ## Skill routing
 
