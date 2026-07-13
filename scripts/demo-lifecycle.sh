@@ -363,6 +363,23 @@ all() {
     say "LIFECYCLE COMPLETE — install, update, break, auto-rollback, reset: all green"
 }
 
+resume_from_2() {
+    # Debug helper: reuse an installed disk that already proved phase 1
+    # (fresh boot OK); re-runs the data write, then phases 2-6.
+    trap kill_vm EXIT
+    registry_up
+    boot_vm; wait_ssh
+    assert_eq "verdict" "OK" "$(vm_root luke status --json | jq -r .verdict)"
+    vm_root sh -c "'mkdir -p /var/mnt/data/share && echo precious > /var/mnt/data/share/family-photos.txt'"
+    phase_2_stage_update
+    phase_3_apply
+    phase_4_auto_rollback
+    phase_5_factory_reset
+    phase_6_power_loss
+    kill_vm
+    say "RESUME COMPLETE — phases 2-6 green"
+}
+
 resume_from_4() {
     # Debug helper: continue on an existing disk that already passed
     # phases 1-3 (booted v2, data file written). Saves a reinstall while
@@ -384,6 +401,7 @@ case "${1:-all}" in
     verify-static)  verify_static ;;
     clean)          clean ;;
     all)            all ;;
+    resume-from-2)  resume_from_2 ;;
     resume-from-4)  resume_from_4 ;;
     *) echo "usage: $0 <registry-up|build-variants|install|all|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
 esac
