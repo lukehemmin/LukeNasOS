@@ -92,8 +92,18 @@ pinned_checksum=$(ostree admin status | awk '
     "ostree admin status   (then file an issue with the output)"
 
 stateroot=$(ostree admin status | awk '/^\*/ {print $2; exit}' || echo default)
+stateroot=${stateroot:-default}
 
-ostree admin deploy --stateroot="${stateroot:-default}" --retain "$pinned_checksum" \
+# Carry the install deployment's origin over. Deploying a bare checksum
+# leaves the new deployment origin-less: bootc then reports the booted
+# version as unknown and refuses to manage updates — the reset would work
+# once and strand the machine.
+origin_args=()
+# shellcheck disable=SC2012
+pinned_origin=$(ls "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*.origin 2>/dev/null | head -1)
+[ -n "$pinned_origin" ] && origin_args=(--origin-file "$pinned_origin")
+
+ostree admin deploy --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
     || die "$EXIT_ERROR" LUKE-E043 \
         "deploying the pinned install image failed" \
         "see: journalctl -b" \
@@ -102,6 +112,13 @@ ostree admin deploy --stateroot="${stateroot:-default}" --retain "$pinned_checks
 # Clear app/OS machine state but keep the ostree repo, the event journal,
 # and /data. Containers are redeployed from quadlet units on next boot.
 rm -rf /var/lib/containers/storage 2>/dev/null || true
+
+# A reset is a fresh start for the recovery ledger too: drop the RECOVERED
+# verdict and staging bookkeeping. The digest block list survives — images
+# that failed on this hardware are still bad after a reset — and the full
+# history stays in the event journal.
+rm -f "$LUKE_ROLLBACK_CAUSE" "$LUKE_STATE_DIR/recovered-acked" \
+      "$LUKE_EXPECTED" "$LUKE_STATE_DIR/pending-rollback.json"
 
 event_log factory-reset-deployed "$(jq -cn --arg cs "$pinned_checksum" '{checksum: $cs}')"
 # The first boot after reset shows "your data survived" with the size —
