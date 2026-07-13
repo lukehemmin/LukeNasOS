@@ -317,13 +317,19 @@ phase_6_power_loss() {
     kill_vm   # yank the cord mid-pull
     boot_vm; wait_ssh
     assert_eq "boots after mid-staging cut" "OK" "$(vm_root luke status --json | jq -r .verdict)"
-    # 6b: cut AFTER staging, before finalize — staged deployment is
-    # finalized on clean shutdown only; status must explain that.
+    # 6b: cut AFTER staging, before the clean reboot — the staged
+    # deployment lives in /run and is DISCARDED by an unclean shutdown;
+    # status must explain the loss and tell the user to re-run the update.
     vm_root luke update --json >/dev/null || true
     kill_vm   # power cut, not a clean reboot
     boot_vm; wait_ssh
-    vm_root luke status --json | jq -e '.staged_but_not_finalized == true or .staged != null' >/dev/null \
-        && echo "   ok: status explains the unfinalized staged update"
+    if vm_root luke status --json | jq -e '.staged_lost == true' >/dev/null; then
+        echo "   ok: status explains the update lost to the power cut"
+    else
+        echo "ASSERT FAIL: 6b — status does not report the staged update as lost" >&2
+        vm_root luke status --json >&2 || true
+        exit 1
+    fi
 }
 
 # ── entry points ──────────────────────────────────────────────────────────

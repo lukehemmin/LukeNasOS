@@ -38,20 +38,21 @@ staged_ver=$(jq -r '.status.staged.image.version // empty' <<<"$bootc_json")
 rollback_ver=$(jq -r '.status.rollback.image.version // empty' <<<"$bootc_json")
 verdict=$(current_verdict)
 
-# Power-cut-after-staging detection: a staged deployment is finalized on
-# clean shutdown only. If a staged deployment from a PREVIOUS boot is still
-# here, the machine went down before finalizing — say so, or the user
-# concludes the update "didn't take" and retries forever. A deployment
-# staged during THIS boot is normal and gets no warning (boot ids differ).
-stale_staged=""
-if [ -n "$staged_ver" ] && [ -f "$LUKE_EXPECTED" ]; then
+# Power-cut-after-staging detection: a staged deployment lives in /run and
+# is finalized on clean shutdown only — an unclean shutdown DISCARDS it.
+# So if a previous boot recorded an expected digest, nothing is staged now,
+# and we did not boot that digest (and did not roll back), the update was
+# lost to a power cut. Say so, or the user concludes the update "didn't
+# take" and retries forever.
+staged_lost=""
+if [ -f "$LUKE_EXPECTED" ] && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
     expected_digest=$(awk '{print $1}' "$LUKE_EXPECTED")
     expected_boot=$(awk '{print $2}' "$LUKE_EXPECTED")
     current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo current)
-    if [ "$booted_dig" != "$expected_digest" ] \
-        && [ -n "$expected_boot" ] && [ "$expected_boot" != "$current_boot" ] \
-        && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
-        stale_staged="yes"
+    if [ -z "$staged_ver" ] \
+        && [ "$booted_dig" != "$expected_digest" ] \
+        && [ -n "$expected_boot" ] && [ "$expected_boot" != "$current_boot" ]; then
+        staged_lost="yes"
     fi
 fi
 
@@ -61,12 +62,12 @@ if [ "$JSON" = 1 ]; then
         --arg booted "$booted_ver" \
         --arg staged "${staged_ver:-}" \
         --arg rollback "${rollback_ver:-}" \
-        --arg stale_staged "${stale_staged:-no}" \
+        --arg staged_lost "${staged_lost:-no}" \
         --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
         '{verdict: $verdict, booted: $booted,
           staged: (if $staged == "" then null else $staged end),
           rollback: (if $rollback == "" then null else $rollback end),
-          staged_but_not_finalized: ($stale_staged == "yes"),
+          staged_lost: ($staged_lost == "yes"),
           last_rollback: $cause[0]}'
     exit "$EXIT_OK"
 fi
@@ -79,9 +80,10 @@ fi
 if [ -n "$rollback_ver" ]; then
     echo "   Rollback: $rollback_ver (luke undo)"
 fi
-if [ "$stale_staged" = "yes" ]; then
-    echo "   Note: an update was staged but the machine shut down before it"
-    echo "         was finalized. It will apply on the next clean reboot."
+if [ "$staged_lost" = "yes" ]; then
+    echo "   Note: an update was staged, but the machine lost power before a"
+    echo "         clean reboot could apply it, so it was discarded."
+    echo "         Nothing is wrong with your system. Re-run: luke update"
 fi
 
 if [ "$show_events" = 1 ] && [ -f "$LUKE_EVENTS" ]; then
