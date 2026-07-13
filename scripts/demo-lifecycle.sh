@@ -214,7 +214,10 @@ vm() { ssh "${SSH_OPTS[@]}" luke@localhost -- "$@"; }
 vm_root() { ssh "${SSH_OPTS[@]}" luke@localhost -- sudo "$@"; }
 
 wait_ssh() {
-    for _ in $(seq 1 120); do
+    # Default 10 min. TCG-only hosts need more: a first boot of a new
+    # deployment stacks emulation overhead, the greenboot chain, and the
+    # Samba grace wait. Override with WAIT_SSH_TRIES (x5s).
+    for _ in $(seq 1 "${WAIT_SSH_TRIES:-120}"); do
         vm true 2>/dev/null && return 0
         sleep 5
     done
