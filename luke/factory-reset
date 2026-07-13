@@ -79,12 +79,13 @@ event_log factory-reset-started "$(jq -cn --arg size "$data_size" '{data: $size}
 # Redeploy the pinned commit. `ostree admin deploy` of the pinned checksum
 # creates a fresh deployment (fresh /etc from the commit's defaults);
 # machine state under /var/lib is cleared selectively below.
-pinned_checksum=$(ostree admin status | awk '/^\*?\s*\S+/ {cs=$NF} /Pinned: yes/ {print cs; exit}' \
-    | tr -d '*() ')
-if [ -z "$pinned_checksum" ]; then
-    # Fallback parse: first pinned deployment line "  fedora <checksum>.N"
-    pinned_checksum=$(ostree admin status | grep -B2 "Pinned: yes" | head -1 | awk '{print $2}' | cut -d. -f1)
-fi
+# Parse by shape, not position: the checksum is the only 64-hex token (with
+# a .N deploy serial) on a deployment line, and "Pinned: yes" refers to the
+# deployment line most recently seen above it. A positional parse here once
+# extracted the literal string "yes" and fed it to ostree as a refspec.
+pinned_checksum=$(ostree admin status | awk '
+    { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]{64}(\.[0-9]+)?$/) cs = $i }
+    /^[[:space:]]*Pinned: yes/ { sub(/\.[0-9]+$/, "", cs); print cs; exit }')
 [ -n "$pinned_checksum" ] || die "$EXIT_ERROR" LUKE-E042 \
     "could not identify the pinned deployment" \
     "ostree admin status output did not parse" \
