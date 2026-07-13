@@ -119,7 +119,7 @@ chmod 0440 /etc/sudoers.d/luke-test
 # TCG-emulated test hosts start containers an order of magnitude slower
 # than any real machine; stretch the Samba health-check grace accordingly.
 mkdir -p /etc/lukenasos
-echo 'SAMBA_GRACE_SECONDS=900' > /etc/lukenasos/health.conf
+printf 'SAMBA_GRACE_SECONDS=900\nCORE_GRACE_SECONDS=900\n' > /etc/lukenasos/health.conf
 # Point updates at the host's local registry (10.0.2.2 = QEMU user-net host)
 sed -i 's|IMAGE_REF=.*|IMAGE_REF=10.0.2.2:5000/lukenasos:v2|' /etc/lukenasos/luke.conf
 echo '[[registry]]
