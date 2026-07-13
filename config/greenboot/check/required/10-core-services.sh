@@ -22,8 +22,13 @@ done
 # treat "not active" as fatal once Samba has been seen alive on this
 # machine — then it is a regression worth rolling back for.
 SAMBA_MARKER=/var/lib/lukenasos/.samba-has-run
+# Container start time varies wildly with hardware (measured >180s under
+# emulation with the image already local). Machine-tunable, sane default.
+SAMBA_GRACE_SECONDS=300
+# shellcheck disable=SC1091
+[ -f /etc/lukenasos/health.conf ] && . /etc/lukenasos/health.conf
 if systemctl list-unit-files samba.service 2>/dev/null | grep -q '^samba\.service'; then
-    if timeout 180 bash -c 'until systemctl is-active --quiet samba.service; do sleep 5; done'; then
+    if timeout "$SAMBA_GRACE_SECONDS" bash -c 'until systemctl is-active --quiet samba.service; do sleep 5; done'; then
         mkdir -p "$(dirname "$SAMBA_MARKER")"
         touch "$SAMBA_MARKER"
     elif [ -f "$SAMBA_MARKER" ]; then

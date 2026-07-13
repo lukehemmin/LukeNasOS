@@ -13,8 +13,21 @@ show_events=0
 for a in "${PARSED_ARGS[@]}"; do
     case "$a" in
         --events) show_events=1 ;;
+        --ack)
+            # Acknowledge a RECOVERED verdict: the cause stays in the event
+            # journal, but the banner and status return to ● OK. Without
+            # this the warning would outlive its usefulness.
+            if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then
+                mkdir -p "$LUKE_STATE_DIR"
+                touch "$LUKE_STATE_DIR/recovered-acked"
+                echo "Acknowledged. History stays in: luke status --events"
+            else
+                echo "Nothing to acknowledge."
+            fi
+            exit 0
+            ;;
         *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
-             "luke status accepts --json and --events" "luke status" ;;
+             "luke status accepts --json, --events, --ack" "luke status" ;;
     esac
 done
 

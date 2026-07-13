@@ -38,6 +38,12 @@ RUN chmod 0755 /etc/greenboot/check/required.d/*.sh /etc/greenboot/red.d/*.sh
 # Two failed boots, then GRUB falls back to the previous deployment.
 RUN printf 'GREENBOOT_MAX_BOOT_ATTEMPTS=2\n' > /etc/greenboot/greenboot.conf
 
+# systemd-remount-fs fails on every composefs boot ("overlay: No changes
+# allowed in reconfigure") — / is a read-only overlay and fstab's root
+# options cannot be reapplied. Harmless, but it lands in systemctl --failed
+# on every boot and pollutes the recorded rollback causes. Mask it.
+RUN systemctl mask systemd-remount-fs.service
+
 # ── systemd units, timers, and the Samba quadlet ─────────────────────────
 COPY config/systemd/ /usr/lib/systemd/system/
 COPY config/containers/samba.container /usr/share/containers/systemd/samba.container
