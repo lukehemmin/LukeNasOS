@@ -41,7 +41,20 @@ RUN printf 'GREENBOOT_MAX_BOOT_ATTEMPTS=2\n' > /etc/greenboot/greenboot.conf
 # ── systemd units, timers, and the Samba quadlet ─────────────────────────
 COPY config/systemd/ /usr/lib/systemd/system/
 COPY config/containers/samba.container /usr/share/containers/systemd/samba.container
+# greenboot ships DISABLED by Fedora preset. Without these enables the
+# headline feature silently does not exist: no boot counter is set, checks
+# never run, and a broken deployment boots to a green banner (verified the
+# hard way in the first full lifecycle run).
 RUN systemctl enable \
+        greenboot-healthcheck.service \
+        greenboot-loading-message.service \
+        greenboot-status.service \
+        greenboot-task-runner.service \
+        greenboot-grub2-set-counter.service \
+        greenboot-grub2-set-success.service \
+        greenboot-rpm-ostree-grub2-check-fallback.service \
+        redboot-auto-reboot.service \
+        redboot-task-runner.service \
         lukenasos-boot-check.service \
         lukenasos-banner.service \
         lukenasos-scrub.timer \
