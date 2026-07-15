@@ -1,10 +1,15 @@
 # PR gate. x86_64 gates everything: if this is red, nothing merges.
-name: e2e
+#
+# A copy of this file lives on main so that manual dispatch is registered
+# (GitHub only lists workflow_dispatch workflows found on the default
+# branch); push runs are driven by THIS copy on the development branch.
+name: 260709_test_e2e
 
 on:
   pull_request:
   push:
-    branches: [main, 260709_test]
+    branches: [260709_test]
+  workflow_dispatch:
 
 jobs:
   static:
