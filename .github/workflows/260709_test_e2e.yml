@@ -21,6 +21,32 @@ jobs:
       - name: Static checks (syntax, shellcheck, credential grep)
         run: scripts/demo-lifecycle.sh verify-static
 
+  iso:
+    # The installer ISO as a downloadable run artifact (Actions run page →
+    # Artifacts, or `gh run download -n lukenasos-x86_64-iso`). Same script
+    # as local `make iso`. Online installer: installing from it needs the
+    # OS image published at the ref baked into the kickstart.
+    runs-on: ubuntu-latest
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install remaster tools
+        run: sudo apt-get update && sudo apt-get install -y xorriso mtools
+      - name: Cache the netinst ISO
+        uses: actions/cache@v4
+        with:
+          path: build/fedora-netinst.iso
+          key: fedora-netinst-42
+      - name: Build the installer ISO
+        run: scripts/build-iso.sh
+      - name: Upload as run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lukenasos-x86_64-iso
+          path: build/lukenasos-x86_64.iso
+          retention-days: 14
+          compression-level: 0   # ISO is already compressed; do not burn CPU
+
   build:
     runs-on: ubuntu-latest
     needs: static
