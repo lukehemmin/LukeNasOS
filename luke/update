@@ -46,7 +46,22 @@ remote_version=$(skopeo inspect --format '{{index .Labels "org.opencontainers.im
 current=$(booted_digest)
 current_version=$(booted_version)
 
-if [ "$remote_digest" = "$current" ] || [ "$remote_digest" = "$(staged_digest)" ]; then
+# A staged deployment only counts as "already current" if it was staged
+# during THIS boot. After a power cut, the previous boot's unfinalized
+# staged deployment can still be visible early in the next boot — but it
+# is a ghost that will never finalize, and trusting it would make update
+# report "already current" while doing nothing. The expected-digest record
+# carries the staging boot id; a mismatch means restage.
+staged_now=$(staged_digest)
+staged_fresh=0
+if [ -n "$staged_now" ] && [ -f "$LUKE_EXPECTED" ]; then
+    exp_boot=$(awk '{print $2}' "$LUKE_EXPECTED")
+    cur_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo current)
+    [ -n "$exp_boot" ] && [ "$exp_boot" = "$cur_boot" ] && staged_fresh=1
+fi
+
+if [ "$remote_digest" = "$current" ] \
+    || { [ "$staged_fresh" = 1 ] && [ "$remote_digest" = "$staged_now" ]; }; then
     if [ "$JSON" = 1 ]; then
         jq -n --arg v "$current_version" '{result: "current", booted: $v}'
     else
