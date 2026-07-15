@@ -38,6 +38,7 @@ booted=$(booted_digest)
 if [ -n "$failed_digest" ] && [ "$booted" != "$failed_digest" ]; then
     to_ver=$(booted_version)
     jq --arg to "$to_ver" '. + {to_version: $to}' "$PENDING" > "$LUKE_ROLLBACK_CAUSE"
+    persist "$LUKE_ROLLBACK_CAUSE"
     rm -f "$PENDING" "$LUKE_STATE_DIR/recovered-acked"
     block_digest "$failed_digest"
     event_log auto-rollback "$(cat "$LUKE_ROLLBACK_CAUSE")"

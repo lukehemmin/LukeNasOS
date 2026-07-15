@@ -28,4 +28,8 @@ jq -cn \
     '{ts: $ts, from_digest: $from_digest, from_version: $from_version, cause: $cause}' \
     > "$STATE_DIR/pending-rollback.json"
 
+# This record must survive whatever happens next (the machine is about to
+# be rebooted out from under us); do not leave it in the page cache.
+sync "$STATE_DIR/pending-rollback.json" 2>/dev/null || sync
+
 exit 0

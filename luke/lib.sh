@@ -81,6 +81,14 @@ die() {
     exit "$code"
 }
 
+persist() {
+    # Flush a just-written bookkeeping file to disk. The recovery ledger
+    # exists precisely for power-cut scenarios; a record that lives only
+    # in the page cache dies with the power (verified: the expected-digest
+    # written 15s before a cut was gone on the next boot).
+    sync "$@" 2>/dev/null || sync
+}
+
 event_log() {
     # event_log TYPE JSON_DETAIL — append to the machine-local event journal.
     # /var/lib is shared across deployments in the stateroot, so events
@@ -122,6 +130,7 @@ digest_blocked() {
 block_digest() {
     mkdir -p "$LUKE_STATE_DIR"
     digest_blocked "$1" || echo "$1" >> "$LUKE_BLOCKLIST"
+    persist "$LUKE_BLOCKLIST"
 }
 
 pinned_deployment_exists() {
