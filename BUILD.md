@@ -129,6 +129,28 @@ already prepared: partitioning, `mkfs`, subvolume creation, kernel arguments
 (`rootflags=subvol=@sysroot`), ESP handling, and SELinux labelling are all on us. Budget
 accordingly — this is the largest schedule risk in the project.
 
+### Installer ISO
+
+```bash
+make iso                    # → build/lukenasos-x86_64.iso
+```
+
+`scripts/build-iso.sh` remasters the Fedora netinst ISO with `installer/luke.ks`
+using xorriso + mtools only — no loop devices, no privileges, no container — so it
+works the same on a laptop, inside an unprivileged LXC, and on a CI runner. The
+netinst's UEFI boot config lives inside the hidden El Torito FAT image; mtools edits
+it in place, which is why mkksiso (whose mkefiboot step needs loop devices) is not
+used. The script verifies the output: kickstart present, `inst.ks` wired into both
+the BIOS and UEFI boot paths.
+
+The result is an **online installer**: at install time it pulls the OS image named
+by `--image` (default `ghcr.io/lukehemmin/lukenasos:stable`), which therefore must
+be published and reachable. `--serial` adds `inst.text console=ttyS0` for headless
+installs; `--offline` builds the self-contained anaconda ISO via osbuild
+image-builder instead (needs loop devices — CI or a real host, not an unprivileged
+LXC). The release workflow runs the same script and attaches the ISO to the GitHub
+release.
+
 ### Image conversion
 
 `bootc-image-builder` was archived in June 2026 and folded into osbuild's `image-builder`.

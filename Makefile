@@ -10,7 +10,13 @@ TAG        ?= dev
 REGISTRY   ?= localhost:5000
 ENGINE     ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
-.PHONY: build demo lint check clean registry
+.PHONY: build demo lint check clean registry iso
+
+# Online-installer ISO (works anywhere docker/podman runs; no privileges).
+# IMAGE_REF overrides the OS image the installer deploys:
+#   make iso IMAGE_REF=ghcr.io/lukehemmin/lukenasos:v0.1.0
+iso:
+	scripts/build-iso.sh $(if $(IMAGE_REF),--image $(IMAGE_REF))
 
 build:
 	$(ENGINE) build -f Containerfile -t $(IMAGE):$(TAG) .

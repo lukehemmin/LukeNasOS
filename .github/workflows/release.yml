@@ -70,10 +70,16 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
           skopeo copy "docker://$IMAGE:${{ github.ref_name }}-x86_64" "docker://$IMAGE:stable"
-      - name: Publish the N-1 try image alongside the release
+      - name: Build the installer ISO (same script as local `make iso`)
+        run: |
+          scripts/build-iso.sh \
+            --image "$IMAGE:${{ github.ref_name }}-x86_64" \
+            --out build/lukenasos-x86_64.iso
+      - name: Publish the release with the ISO
         run: |
           # The previous release stays downloadable as the "-1" qcow2 so a
           # fresh adopter's `luke update` has something to find.
           gh release create "${{ github.ref_name }}" --generate-notes || true
+          gh release upload "${{ github.ref_name }}" build/lukenasos-x86_64.iso --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
