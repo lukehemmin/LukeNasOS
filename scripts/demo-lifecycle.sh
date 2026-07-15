@@ -320,9 +320,16 @@ phase_6_power_loss() {
     # 6b: cut AFTER staging, before the clean reboot — the staged
     # deployment lives in /run and is DISCARDED by an unclean shutdown;
     # status must explain the loss and tell the user to re-run the update.
-    vm_root luke update --json >/dev/null || true
+    echo "   [6b] pre-update bookkeeping:"
+    vm_root sh -c "'cat /var/lib/lukenasos/expected-digest 2>/dev/null || echo NO-EXPECTED; bootc status --json | jq -c .status.staged.image.version'" | sed 's/^/   [6b] /'
+    echo "   [6b] update output:"
+    vm_root luke update --json | sed 's/^/   [6b] /' || echo "   [6b] update rc=$?"
+    echo "   [6b] post-update bookkeeping:"
+    vm_root sh -c "'cat /var/lib/lukenasos/expected-digest 2>/dev/null || echo NO-EXPECTED; cat /proc/sys/kernel/random/boot_id'" | sed 's/^/   [6b] /'
     kill_vm   # power cut, not a clean reboot
     boot_vm; wait_ssh
+    echo "   [6b] after power cut:"
+    vm_root sh -c "'cat /var/lib/lukenasos/expected-digest 2>/dev/null || echo NO-EXPECTED; cat /proc/sys/kernel/random/boot_id; bootc status --json | jq -c .status.staged'" | sed 's/^/   [6b] /'
     if vm_root luke status --json | jq -e '.staged_lost == true' >/dev/null; then
         echo "   ok: status explains the update lost to the power cut"
     else
