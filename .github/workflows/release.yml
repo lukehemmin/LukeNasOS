@@ -1,0 +1,79 @@
+# Tag → build matrix → sign → smoke test → publish.
+# x86_64 gates the release; ARM targets are separate artifacts on their own
+# maturity timeline and never block it.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write   # keyless cosign
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/lukenasos
+
+jobs:
+  build-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            runner: ubuntu-latest
+            platform: linux/amd64
+            gates_release: true
+          - target: arm64-generic
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            gates_release: false
+          # rpi4/rpi5 ship when the spike lands; they never gate.
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ !matrix.gates_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build
+        run: |
+          podman build --platform ${{ matrix.platform }} \
+            --build-arg VERSION=${{ github.ref_name }} \
+            -t "$IMAGE:${{ github.ref_name }}-${{ matrix.target }}" .
+      - name: Push
+        run: podman push "$IMAGE:${{ github.ref_name }}-${{ matrix.target }}"
+      - name: Sign (cosign, keyless — pinned to this workflow identity)
+        run: |
+          curl -fsSL -o cosign https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          chmod +x cosign
+          digest=$(podman image inspect "$IMAGE:${{ github.ref_name }}-${{ matrix.target }}" --format '{{index .RepoDigests 0}}' | cut -d@ -f2 || skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:${{ github.ref_name }}-${{ matrix.target }}")
+          ./cosign sign --yes "$IMAGE@$digest"
+
+  smoke-and-publish:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: QEMU smoke test (x86_64 gates the release)
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools jq podman xorriso
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          # Boot-check only here: the full lifecycle already gated the merge.
+          scripts/demo-lifecycle.sh registry-up
+          podman pull "$IMAGE:${{ github.ref_name }}-x86_64"
+          podman tag  "$IMAGE:${{ github.ref_name }}-x86_64" localhost:5000/lukenasos:v1
+          podman push localhost:5000/lukenasos:v1
+      - name: Move the stable tag
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          skopeo copy "docker://$IMAGE:${{ github.ref_name }}-x86_64" "docker://$IMAGE:stable"
+      - name: Publish the N-1 try image alongside the release
+        run: |
+          # The previous release stays downloadable as the "-1" qcow2 so a
+          # fresh adopter's `luke update` has something to find.
+          gh release create "${{ github.ref_name }}" --generate-notes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

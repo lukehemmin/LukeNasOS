@@ -1,0 +1,33 @@
+# Weekly rebuild against the upstream base image, so LukeNasOS keeps
+# receiving security updates even when the maintainer is quiet. This is
+# half of the exit plan (docs/exit-plan.md): the image does not rot.
+name: scheduled-rebuild
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Rebuild current stable against the fresh base
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/lukenasos
+          version=$(skopeo inspect --format '{{index .Labels "org.opencontainers.image.version"}}' "docker://$IMAGE:stable" || echo rebuild)
+          podman build --pull=always --build-arg VERSION="${version}.$(date +%Y%m%d)" -t "$IMAGE:stable-rebuild" .
+      - name: Smoke-test that the image still lints
+        run: podman run --rm ghcr.io/${{ github.repository_owner }}/lukenasos:stable-rebuild bootc container lint
+      - name: Push
+        run: podman push ghcr.io/${{ github.repository_owner }}/lukenasos:stable-rebuild
+      # Promotion of stable-rebuild → stable stays a human decision until
+      # the soak story (open question 5: @seed promotion policy) is settled.
