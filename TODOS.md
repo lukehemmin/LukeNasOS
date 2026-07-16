@@ -22,6 +22,15 @@ Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
   `/design-consultation` for the visual system before the dashboard slice. (L → M, P2,
   depends: first-boot wizard, event model)
 
+- [ ] **Visual system (DESIGN.md) for the web surface** — run `/design-consultation` to
+  produce DESIGN.md (palette, typography, spacing, motion) before the dashboard slice.
+  Design review 2026-07-16 deliberately capped Phase 1 at stock PatternFly + wordmark +
+  the health strip as the only custom component, because there was no system to build
+  against and hand-rolled CSS fights Cockpit's theming (and breaks dark mode). The
+  dashboard is the product's face; it should not ship as "another Cockpit page". Do this
+  when there are real screens to design against, not before. (M → S, P2, depends:
+  first-boot wizard)
+
 - [ ] **Data-plane undo** — `@data` snapshot timeline, btrfs scrub timer, send/receive
   backups. This extends "undo" from the OS to the whole NAS, which is what users actually
   fear losing. (L → M, P2)
