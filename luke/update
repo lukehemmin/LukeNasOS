@@ -124,17 +124,26 @@ update_log=$(mktemp) || die "$EXIT_ERROR" LUKE-E021 \
 # shellcheck disable=SC2064  # expand now: the path must survive the trap
 trap "rm -f '$update_log'" EXIT
 
-if [ "$JSON" = 1 ]; then
-    systemd-run --unit=lukenasos-update --wait --pipe \
-        --property=Type=oneshot \
-        "${stage_cmd[@]}" > "$update_log" 2>&1
-    stage_rc=$?
-else
-    systemd-run --unit=lukenasos-update --wait --pipe \
-        --property=Type=oneshot \
-        "${stage_cmd[@]}" 2>&1 | tee "$update_log"
-    stage_rc=${PIPESTATUS[0]}
-fi
+# Called as `run_stage || stage_rc=$?` on purpose: errexit is suppressed for
+# everything inside a function invoked in an || list, so a failing stage lands
+# on the error path below instead of killing the script where it stands — which
+# is what a bare `systemd-run` under `set -e` does, silently, before `$?` can
+# even be read.
+run_stage() {
+    if [ "$JSON" = 1 ]; then
+        systemd-run --unit=lukenasos-update --wait --pipe \
+            --property=Type=oneshot \
+            "${stage_cmd[@]}" > "$update_log" 2>&1
+    else
+        systemd-run --unit=lukenasos-update --wait --pipe \
+            --property=Type=oneshot \
+            "${stage_cmd[@]}" 2>&1 | tee "$update_log"
+        return "${PIPESTATUS[0]}"
+    fi
+}
+
+stage_rc=0
+run_stage || stage_rc=$?
 
 if [ "$stage_rc" != 0 ]; then
     # The last few lines are what bootc actually complained about; the rest is
