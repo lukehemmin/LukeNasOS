@@ -8,11 +8,19 @@
 # NEVER bake credentials into this file. First-boot credentials come from
 # the installer (installer/luke.ks). CI greps for leaked keys.
 
-# fedora-bootc:44 as of 2026-07-17 (SUPPORT_END=2027-05-19). The scheduled
-# rebuild workflow proposes digest bumps within the tag; the release bump is a
-# deliberate act, because it is never just a digest — see the greenboot note
-# at the enable list below, and the EOL watch in rebuild.yml.
-ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:d5a4f1265d5b0f27a75c91b8b16d19a647d09b712beb4312135eb53ce2c257ac
+# fedora-bootc:44 as of 2026-07-17 11:30 UTC (SUPPORT_END=2027-05-19). The
+# scheduled rebuild workflow proposes digest bumps within the tag; the release
+# bump is a deliberate act, because it is never just a digest — see the greenboot
+# note at the enable list below, and the EOL watch in rebuild.yml.
+#
+# This pin is a RECORD, not a guarantee, and that is not the intent — see
+# TODOS.md, "the digest pin does not pin anything". quay.io/fedora/fedora-bootc
+# deletes a manifest the moment the tag moves off it (measured 2026-07-17: the
+# 44 tag moved at 11:30:32, the digest we had pinned since yesterday was gone by
+# 11:57, and the build failed with "manifest unknown"). So this line cannot hold
+# a base still; it can only say which one we last built against. Mirroring the
+# base into a registry we control is the fix, and it is a maintainer decision.
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:451ab491a197c41ba07277bad6a72f6d8458d4dd9fb189b242419031aa9ea840
 FROM ${BASE_IMAGE}
 
 ARG VERSION=0.1.0-dev

@@ -28,6 +28,19 @@ this is the rest, and it is the first work that puts a screen in front of a user
   is a container, so no Unix password can reach it (NT hashes are not derivable) — `share`
   asks for the same password once via `--password-stdin` and stores the container's hash.
 
+- [ ] **The digest pin does not pin anything** — the Containerfile pins the base by
+  digest because "an OS that promises safe updates cannot itself update from a mutable
+  tag". quay.io/fedora/fedora-bootc deletes a manifest the moment the tag moves off it —
+  no time-machine window at all. Measured 2026-07-17: Fedora moved `44` at 11:30:32, our
+  digest (green in CI the day before) was unreachable by 11:57, and every build since fails
+  with `manifest unknown`. Two consequences, both against the policy's own purpose: the
+  build breaks roughly daily while `scheduled-rebuild` proposes bumps **weekly**, and no
+  past release can ever be rebuilt from its recorded digest — which is what
+  `docs/exit-plan.md` assumes. The fix is to mirror the base into a registry we control
+  (GHCR) and pin to the mirror; that is a supply-chain decision for the maintainer, and it
+  rides along with the still-pending GHCR publish. Until then, every red `build` job with
+  `manifest unknown` is this, not the commit under it. (M → S, P1)
+
 - [ ] **Verify sshd really refuses password auth, or stop saying it does** — SPEC §9 says
   "password authentication over ssh stays refused", but the console banner tells a new
   owner to `ssh luke@<ip>` and type the setup token, which only works if it does not. One
