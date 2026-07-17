@@ -281,7 +281,12 @@ assert_json() {
             vm_root journalctl -u lukenasos-update --no-pager -n 25 2>&1 | sed 's/^/     /' || true
             echo "   --- bootc, which every luke verb stands on ---"
             vm_root bootc --version 2>&1 | sed 's/^/     /' || true
-            vm_root bootc status --json 2>&1 | head -c 600 | sed 's/^/     /' || true
+            vm_root bootc status --json 2>&1 | head -c 400 | sed 's/^/     /' || true
+            echo
+            echo "   --- SELinux denials (a policy refusal reads as a broken pipe) ---"
+            vm_root ausearch -m avc -ts recent 2>&1 | tail -15 | sed 's/^/     /' || true
+            echo "   --- what PID 1 itself thought ---"
+            vm_root journalctl -b _PID=1 --no-pager -n 15 2>&1 | sed 's/^/     /' || true
         } >&2
         exit 1
     fi
