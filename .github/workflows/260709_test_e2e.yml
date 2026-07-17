@@ -113,6 +113,45 @@ jobs:
           # And the include that nftables.service actually reads must point at it.
           podman run --rm --entrypoint sh lukenasos:ci -c \
             'grep -q "/usr/share/lukenasos/lukenasos.nft" /etc/sysconfig/nftables.conf'
+      - name: greenboot's boot_counter snippet reaches bootupd's configs.d
+        # The 42 → 44 bump nearly disarmed the headline feature in silence.
+        #
+        # greenboot's grub snippet is what decrements boot_counter, and without
+        # it a broken update simply keeps booting: no rollback, no error, a
+        # green banner. greenboot 0.16 moved that snippet out of /etc/grub.d/
+        # and renamed it (greenboot.cfg → 08_greenboot.cfg), and F42 only ever
+        # had it in bootupd's configs.d because an RPM scriptlet copied it
+        # there. Both facts are upstream's to change again.
+        #
+        # So this asserts the mechanism, not the version: whatever the base is,
+        # the image must carry a grub snippet that touches boot_counter, in the
+        # directory bootupd assembles the installed grub.cfg from. The lifecycle
+        # job proves the rollback actually happens; this says WHY it stopped, in
+        # seconds, on the PR that did it.
+        run: |
+          snippet=$(podman run --rm --entrypoint sh lukenasos:ci -c \
+            'grep -rl boot_counter /usr/lib/bootupd/grub2-static/configs.d/ 2>/dev/null | head -1')
+          if [ -z "$snippet" ]; then
+            echo "::error::No grub snippet in bootupd's configs.d touches boot_counter." >&2
+            echo "Automatic rollback would silently never happen. greenboot changed" >&2
+            echo "where it ships its grub integration — find the new path before merging." >&2
+            podman run --rm --entrypoint sh lukenasos:ci -c \
+              'echo "configs.d holds:"; ls /usr/lib/bootupd/grub2-static/configs.d/; rpm -q greenboot' >&2
+            exit 1
+          fi
+          echo "boot_counter snippet: $snippet"
+          podman run --rm --entrypoint sh lukenasos:ci -c \
+            "grep -E 'decrement boot_counter|set default=1' '$snippet'"
+      - name: The greenboot units we enable are the ones greenboot ships
+        # `systemctl enable` fails on a missing unit, so the build above already
+        # catches a rename. This says it in one line instead of a wall of dnf.
+        run: |
+          podman run --rm --entrypoint sh lukenasos:ci -c '
+            set -e
+            for u in greenboot-healthcheck.service greenboot-set-rollback-trigger.service greenboot-success.target; do
+              test "$(systemctl is-enabled $u)" = enabled || { echo "$u is not enabled"; exit 1; }
+            done
+            echo "greenboot units enabled: $(rpm -q greenboot)"'
 
   lifecycle:
     # The full VM lifecycle: install → update → break → auto-rollback →
@@ -158,51 +197,6 @@ jobs:
         run: |
           grep -Eq 'part /boot .*--fstype=ext4' installer/luke.ks
           grep -Eq 'mkfs\.ext4 .*lukenasos-boot' scripts/install-disk.sh
-
-  rollback-mechanism-contract:
-    # The 42 → 44 bump nearly disarmed the headline feature in silence.
-    #
-    # greenboot's grub snippet is what decrements boot_counter, and without it
-    # a broken update simply keeps booting: no rollback, no error, a green
-    # banner. greenboot 0.16 moved that snippet out of /etc/grub.d/ and renamed
-    # it (greenboot.cfg → 08_greenboot.cfg), and F42 only ever had it in
-    # bootupd's configs.d because an RPM scriptlet copied it there. Both facts
-    # are upstream's to change again.
-    #
-    # So this asserts the mechanism, not the version: whatever the base is, the
-    # image must carry a grub snippet that touches boot_counter, in the
-    # directory bootupd assembles the installed grub.cfg from. The lifecycle
-    # job proves the rollback actually happens; this one says WHY it stopped
-    # happening, in seconds, on the PR that did it.
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      - name: greenboot's boot_counter snippet reaches bootupd's configs.d
-        run: |
-          snippet=$(podman run --rm --entrypoint sh lukenasos:ci -c \
-            'grep -rl boot_counter /usr/lib/bootupd/grub2-static/configs.d/ 2>/dev/null | head -1')
-          if [ -z "$snippet" ]; then
-            echo "::error::No grub snippet in bootupd's configs.d touches boot_counter." >&2
-            echo "Automatic rollback would silently never happen. greenboot changed" >&2
-            echo "where it ships its grub integration — find the new path before merging." >&2
-            podman run --rm --entrypoint sh lukenasos:ci -c \
-              'echo "configs.d holds:"; ls /usr/lib/bootupd/grub2-static/configs.d/; rpm -q greenboot' >&2
-            exit 1
-          fi
-          echo "boot_counter snippet: $snippet"
-          podman run --rm --entrypoint sh lukenasos:ci -c \
-            "grep -E 'decrement boot_counter|set default=1' '$snippet'"
-      - name: The units greenboot actually ships are the ones we enable
-        # `systemctl enable` fails on a missing unit, so the image build already
-        # catches a rename. This says it in one line instead of 40 of podman.
-        run: |
-          podman run --rm --entrypoint sh lukenasos:ci -c '
-            set -e
-            for u in greenboot-healthcheck.service greenboot-set-rollback-trigger.service greenboot-success.target; do
-              test "$(systemctl is-enabled $u)" = enabled || { echo "$u is not enabled"; exit 1; }
-            done
-            echo "greenboot units enabled: $(rpm -q greenboot)"'
 
   install-contract:
     # Four things a real boot taught us in one afternoon. Each is one line in
