@@ -122,13 +122,37 @@ label=$(blkid -o value -s LABEL "$NETINST")
 extra=""
 [ "$SERIAL" = 1 ] && extra=" inst.text console=ttyS0,115200"
 
-# Append inst.ks to every install cmdline, make the first entry the
-# default, and shorten the menu timeout: this ISO has exactly one job.
+# The menu title is the product's first contact with a human, and it was
+# saying "Install Fedora 42". It is also the last gate before an installer
+# that erases a disk: someone who boots this by accident gets ten seconds and
+# one line of text to realise it, so that line says what is about to happen.
+#
+# The ISO *volume label* is deliberately NOT rebranded: it is load-bearing
+# (blkid reads it here, and three grub.cfg copies — including the one inside
+# the hidden efiboot.img — reference it in inst.stage2=/inst.ks=). Renaming it
+# means changing the remaster contract everywhere at once, for a string no
+# user ever sees. See TODOS.md.
+PRODUCT_TITLE="Install LukeNasOS (erases the disk)"
+MEDIA_TITLE="Test this media & install LukeNasOS"
+# '&' means "the whole match" in a sed replacement, so a title containing one
+# swallows itself. Escape at the point of use and keep the titles readable.
+PRODUCT_TITLE_SED=${PRODUCT_TITLE//&/\\&}
+MEDIA_TITLE_SED=${MEDIA_TITLE//&/\\&}
+
+# Append inst.ks to every install cmdline, brand the titles, make the first
+# entry the default, and shorten the menu timeout: this ISO has one job.
 patch_grub() {
     sed -E -e "s|(inst.stage2=hd:LABEL=${label}[^ ]*)|\1 inst.ks=hd:LABEL=${label}:/ks.cfg${extra}|" \
+        -e "s|^(menuentry ')Install Fedora [0-9]+'|\1${PRODUCT_TITLE_SED}'|" \
+        -e "s|^(menuentry ')Test this media & install Fedora [0-9]+'|\1${MEDIA_TITLE_SED}'|" \
         -e 's/^set default="1"/set default="0"/' \
         -e 's/^set timeout=60/set timeout=10/' "$1" > "$2"
     grep -q "inst.ks=" "$2" || { echo "cmdline patch failed for $1" >&2; exit 1; }
+    grep -q "Install LukeNasOS" "$2" || {
+        echo "menu branding failed for $1 — upstream titles changed?" >&2
+        grep -n "^menuentry" "$1" >&2
+        exit 1
+    }
 }
 
 echo "== remastering $NETINST -> $OUT (xorriso + mtools, no privileges) =="
@@ -172,6 +196,13 @@ xorriso -osirrox on -indev "$OUT" -extract /ks.cfg "$WORK/verify-ks" \
     -extract /boot/grub2/grub.cfg "$WORK/verify-bios" >/dev/null 2>&1
 grep -q "ostreecontainer --url=$IMAGE_REF" "$WORK/verify-ks"
 grep -q "inst.ks=" "$WORK/verify-bios"
+grep -q "Install LukeNasOS" "$WORK/verify-bios"
+# The BIOS stall was invisible until someone booted it on a BIOS machine:
+# without a biosboot partition the unattended install silently becomes an
+# interactive one that nobody is watching. It is one line, and it is the
+# difference between "installs" and "hangs forever" on half the world's
+# hardware — so the shipped ISO gets asked whether it carries it.
+grep -q "part biosboot" "$WORK/verify-ks"
 read -r v_lba v_size < <(xorriso -indev "$OUT" -report_el_torito plain 2>/dev/null \
     | awk '/El Torito boot img/ && /UEFI/ {print $(NF), $(NF-1)}')
 dd if="$OUT" of="$WORK/verify-efi.img" bs=2048 skip="$v_lba" \
