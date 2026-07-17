@@ -435,9 +435,11 @@ phase_1c_setup() {
     assert_json "account result" .result created -- \
         luke setup account --name "$SETUP_USER" --json
 
-    # Same hash, copied — not a new password, not a prompt.
-    assert_eq "the chosen password moved to the new account" "$before_hash" \
-        "$(vm_root sh -c "'getent shadow $SETUP_USER | cut -d: -f2'")"
+    # NOTHING may use `luke` past this line. That account was retired by the verb
+    # above, and every vm/vm_root still points at it — the first draft of this
+    # phase read the new account's hash here and got an empty string back,
+    # because ssh had already, correctly, slammed the door. The retirement
+    # working and the harness breaking are the same event.
 
     # The installer's account is retired, and this is where the harness feels it:
     # the account it has used for every other phase stops opening the door.
@@ -461,6 +463,13 @@ phase_1c_setup() {
     # kickstart grants it to luke. Test-only, and only after the line above has
     # proven the password works without it.
     grant_test_sudo
+
+    # Copied, not re-derived: the same hash the owner's password already had.
+    # Weaker than the sudo above — that one proves the credential WORKS — but it
+    # is what says the verb transferred the password rather than inventing a way
+    # to set a new one.
+    assert_eq "the chosen password moved across, byte for byte" "$before_hash" \
+        "$(vm_root sh -c "'getent shadow $SETUP_USER | cut -d: -f2'")"
 
     # ── the share ──
     # Shut before a share exists — the promise SPEC §9 makes and the reason
@@ -540,10 +549,19 @@ phase_4_auto_rollback() {
     assert_eq "data file" "precious" "$(vm_root cat /data/share/family-photos.txt)"
 }
 
+# The machine's ssh identity as a client on the LAN sees it. Not read out of
+# /etc: the question is what the network answers with, which is what a returning
+# client compares against its known_hosts.
+hostkey_fp() {
+    ssh-keyscan -p "$SSH_PORT" -t ed25519 localhost 2>/dev/null \
+        | ssh-keygen -lf - 2>/dev/null | awk '{print $2}'
+}
+
 phase_5_factory_reset() {
     say "phase 5: factory reset preserves /data — and the NAS that serves it"
-    local uid_before
+    local uid_before fp_before
     uid_before=$(vm_root id -u "$SETUP_USER")
+    fp_before=$(hostkey_fp)
     vm_root luke factory-reset --yes-i-typed-the-hostname
     reboot_vm
 
@@ -571,6 +589,13 @@ phase_5_factory_reset() {
     assert_eq "the installer account is retired again" "L" \
         "$(vm_root passwd -S luke | awk '{print $2}')"
     assert_eq "the NAS remembers its name" "$SETUP_HOSTNAME" "$(vm_root cat /etc/hostname)"
+
+    # The reset must not make ssh accuse the machine of being an impostor. This
+    # harness would never notice on its own — it runs with
+    # StrictHostKeyChecking=no and throws known_hosts at /dev/null — so ask the
+    # network directly, the way a returning client does.
+    assert_eq "the machine comes back as itself, not as an impostor" \
+        "$fp_before" "$(hostkey_fp)"
 
     assert_eq "data survived reset" "precious" "$(vm_root cat /data/share/family-photos.txt)"
 
