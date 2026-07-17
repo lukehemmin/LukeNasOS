@@ -231,6 +231,7 @@ capsule is its input:
 | `accounts/<name>.json` | name, **uid/gid**, password hash, shell, groups, authorized_keys, Samba hash |
 | `shares/<name>.json` | share name, path, who may open it |
 | `hostname` | what this NAS is called |
+| `ssh_host_*_key*` | the machine's ssh identity |
 | `samba.env` | generated from the two above; the Samba container's `EnvironmentFile` |
 
 `luke setup` writes the capsule **before** it touches `/etc`, never the other way round: a
@@ -243,6 +244,13 @@ account recreated with a different one is a stranger to its own files — the re
 preserve the bytes and hand them to nobody, which is this section's failure mode wearing a
 different hat. Retiring the installer's `luke` account is re-asserted on every boot for the
 same reason: a fresh `/etc` brings it back unlocked, holding the setup token's password.
+
+The ssh host keys are restored for a reason worth stating plainly: without it, a reset
+makes every client that ever trusted this machine print `REMOTE HOST IDENTIFICATION HAS
+CHANGED — someone could be eavesdropping on you right now`. A recovery feature that makes
+the recovered machine look like an attacker is not a recovery feature. This was a real gap
+until 2026-07-17: `luke factory-reset` had copied the keys into the capsule from the
+beginning, and nothing had ever copied them back.
 
 ### 5.3 Confirmation
 

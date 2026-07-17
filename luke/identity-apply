@@ -22,11 +22,52 @@ source "$(dirname "$0")/lib.sh"
 
 NFT_DIR="${LUKE_NFT_DIR:-/etc/lukenasos/nftables.d}"
 HOSTNAME_FILE="${LUKE_HOSTNAME_FILE:-/etc/hostname}"
+SSH_DIR="${LUKE_SSH_DIR:-/etc/ssh}"
 
 [ -d "$LUKE_CAPSULE" ] || exit 0
 
 changed=0
 note() { changed=1; echo "identity: $*"; }
+
+# ── the machine's ssh identity ────────────────────────────────────────────
+# A factory reset clears /etc, so sshd-keygen makes fresh host keys and every
+# client that ever trusted this machine greets its return with
+#
+#   @@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@
+#   Someone could be eavesdropping on you right now!
+#
+# — ssh's loudest possible warning, produced by the recovery feature, on a
+# product whose whole claim is that recovery is safe. SPEC §5.2 lists the host
+# keys among what survives, and `luke factory-reset` has copied them into the
+# capsule since the beginning. Nothing ever copied them back, so the promise was
+# half-built: the capture without the restore.
+#
+# Captured here too, not only at reset time, because a reset is not the only way
+# to meet a fresh /etc — moving the boot disk into a new machine is the other,
+# and no reset ran there to capture anything.
+sync_host_keys() {
+    local k base restored=0
+    if ls "$LUKE_CAPSULE"/ssh_host_*_key >/dev/null 2>&1; then
+        for k in "$LUKE_CAPSULE"/ssh_host_*; do
+            base=$(basename "$k")
+            cmp -s "$k" "$SSH_DIR/$base" && continue
+            cp -a "$k" "$SSH_DIR/$base" && restored=1
+        done
+        if [ "$restored" = 1 ]; then
+            note "ssh host identity restored — clients will not be warned"
+            # sshd read the regenerated keys minutes ago; it has to be told.
+            # Ordering this unit before sshd instead would put a filesystem mount
+            # in front of the machine's recovery path, which is a worse trade
+            # than one restart.
+            systemctl restart sshd.service >/dev/null 2>&1 || true
+        fi
+    else
+        cp -a "$SSH_DIR"/ssh_host_*_key "$SSH_DIR"/ssh_host_*_key.pub "$LUKE_CAPSULE/" 2>/dev/null || true
+        chmod 0600 "$LUKE_CAPSULE"/ssh_host_*_key 2>/dev/null || true
+        note "ssh host identity captured"
+    fi
+}
+sync_host_keys
 
 # ── the machine's name ────────────────────────────────────────────────────
 

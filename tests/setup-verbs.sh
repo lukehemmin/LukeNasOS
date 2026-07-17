@@ -32,7 +32,10 @@ REAL_HASH='$y$j9T$abcdefghijklmnop$0123456789abcdefghijklmnopqrstuvwxyzABCDEF'
 machine() {
     local lastchg="${1:-20651}" hash="${2:-$REAL_HASH}"
     rm -rf "$WORK/m"; mkdir -p "$WORK/m/bin" "$WORK/m/state" "$WORK/m/capsule" \
-        "$WORK/m/nft" "$WORK/m/share" "$WORK/m/home/luke/.ssh" "$WORK/m/etc"
+        "$WORK/m/nft" "$WORK/m/share" "$WORK/m/home/luke/.ssh" "$WORK/m/etc" "$WORK/m/ssh"
+    # The machine's ssh identity, as first-boot generated it.
+    printf 'ORIGINAL-HOST-KEY\n' > "$WORK/m/ssh/ssh_host_ed25519_key"
+    printf 'ORIGINAL-HOST-KEY-PUB\n' > "$WORK/m/ssh/ssh_host_ed25519_key.pub"
 
     printf 'luke:%s:%s:0:99999:7:::\n' "$hash" "$lastchg" > "$WORK/m/shadow"
     printf 'root:x:0:0::/root:/bin/bash\nluke:x:1000:1000::%s/home/luke:/bin/bash\n' \
@@ -362,6 +365,10 @@ reset_etc() {
           "$WORK/m/luke-locked"
     rm -rf "$WORK/m/home/sangho"
     printf 'localhost\n' > "$WORK/m/etc-hostname"
+    # sshd-keygen makes new host keys into the blank /etc. This is the whole
+    # reason clients get REMOTE HOST IDENTIFICATION HAS CHANGED after a reset.
+    printf 'REGENERATED-AFTER-RESET\n' > "$WORK/m/ssh/ssh_host_ed25519_key"
+    printf 'REGENERATED-PUB\n' > "$WORK/m/ssh/ssh_host_ed25519_key.pub"
 }
 
 apply() {
@@ -371,16 +378,33 @@ apply() {
         LUKE_CAPSULE="$WORK/m/capsule" \
         LUKE_NFT_DIR="$WORK/m/nft" \
         LUKE_HOSTNAME_FILE="$WORK/m/etc-hostname" \
+        LUKE_SSH_DIR="$WORK/m/ssh" \
         bash "$REPO_ROOT/luke/identity-apply" 2>&1)
     RC=$?
     set -o errexit
 }
+
+# Before the reset, a normal boot: the machine's ssh identity is taken into the
+# capsule, because after the reset there is nowhere else it could come from.
+apply
+if [ "$(cat "$WORK/m/capsule/ssh_host_ed25519_key")" = "ORIGINAL-HOST-KEY" ]; then
+    ok "captures the ssh host identity while there is still one to capture"
+else bad "captures the ssh host identity while there is still one to capture"; fi
 
 reset_etc
 apply
 if [ "$RC" = 0 ] && called "useradd --uid 1001"; then
     ok "recreates the administrator a reset erased"
 else bad "recreates the administrator a reset erased"; fi
+
+# The scariest message in ssh, produced by the recovery feature, on a product
+# that sells recovery. SPEC §5.2 lists the host keys as surviving; factory-reset
+# has always copied them to /data and nothing ever copied them back.
+if [ "$(cat "$WORK/m/ssh/ssh_host_ed25519_key")" = "ORIGINAL-HOST-KEY" ] \
+   && [ "$(cat "$WORK/m/ssh/ssh_host_ed25519_key.pub")" = "ORIGINAL-HOST-KEY-PUB" ] \
+   && called "systemctl restart sshd"; then
+    ok "restores the ssh host identity: no REMOTE HOST IDENTIFICATION HAS CHANGED"
+else bad "restores the ssh host identity: no REMOTE HOST IDENTIFICATION HAS CHANGED"; fi
 
 # The uid is the whole point: every file on /data is owned by a number, and a
 # user recreated with a different one is a stranger to their own photos.
