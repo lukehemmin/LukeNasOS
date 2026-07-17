@@ -88,19 +88,32 @@ exit 0
 EOF
     # install(1) consults the real /etc/passwd for -o, which knows nothing of
     # this machine's fake users. Emulate the effect and log the intent.
+    #
+    # -m is APPLIED, not just parsed away. The first version dropped it and fell
+    # back to mkdir's umask, so a test asserting on permissions was reading this
+    # stub's mind instead of the product's — the exact failure these stubs keep
+    # having, and the reason the ACCESS_DENIED below reached a real machine.
     cat > "$WORK/m/bin/install" <<EOF
 #!/bin/bash
 echo "install \$*" >> "$WORK/m/calls"
-dirmode=0; paths=()
+dirmode=0; mode=""; paths=()
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -d) dirmode=1 ;;
-    -m|-o|-g) shift ;;
+    -m) mode="\$2"; shift ;;
+    -o|-g) shift ;;
     *) paths+=("\$1") ;;
   esac
   shift
 done
-if [ "\$dirmode" = 1 ]; then mkdir -p "\${paths[@]}"; else cp "\${paths[0]}" "\${paths[1]}"; fi
+if [ "\$dirmode" = 1 ]; then
+  mkdir -p "\${paths[@]}"
+  [ -n "\$mode" ] && chmod "\$mode" "\${paths[@]}"
+else
+  cp "\${paths[0]}" "\${paths[1]}"
+  [ -n "\$mode" ] && chmod "\$mode" "\${paths[1]}"
+fi
+exit 0
 EOF
     cat > "$WORK/m/bin/passwd" <<EOF
 #!/bin/bash
@@ -307,6 +320,21 @@ if grep -q 'SAMBA_VOLUME_CONFIG_family=\[family\]; path=/share/family; valid use
         "$WORK/m/capsule/samba.env"; then
     ok "the share definition names its owner, and only its owner"
 else bad "the share definition names its owner, and only its owner"; fi
+
+# Samba serves a file AS the account that authenticated, so the directory the
+# shares hang under has to be traversable by someone who is not root. It shipped
+# 0770 root:root, and the result on a real machine was every file in every share
+# answering NT_STATUS_ACCESS_DENIED — with the port open, the password accepted
+# and the share listed. The share itself stays 0770: its contents are the
+# secret, its name is not.
+share_root_mode=$(stat -c %a "$WORK/m/share")
+share_mode=$(stat -c %a "$WORK/m/share/family")
+if [ "$(( 8#$share_root_mode & 8#0005 ))" = "$(( 8#0005 ))" ] && [ "$share_mode" = 770 ]; then
+    ok "the shares directory can be walked through; the share itself cannot"
+else
+    OUT="shares dir=$share_root_mode (needs o+rx to traverse), share=$share_mode (wants 770)"
+    bad "the shares directory can be walked through; the share itself cannot"
+fi
 
 # 445 opens because a share exists — that is the promise in SPEC §9 and in the
 # policy's own comment.

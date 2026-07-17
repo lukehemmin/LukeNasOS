@@ -518,6 +518,13 @@ do_share() {
         '{name: $n, path: $p, valid_users: [$u]}' \
         | capsule_write "$LUKE_CAPSULE/shares/$name.json"
 
+    # The share is the user's; the directory holding the shares only has to be
+    # walked through. Samba serves files as the account that authenticated, so a
+    # parent it cannot traverse means every file in every share comes back
+    # ACCESS_DENIED — with the port open and the password accepted, which is the
+    # least debuggable way for this to fail. Machines installed before this fix
+    # have it at 0770, and tmpfiles alone would not correct them until a reboot.
+    install -d -m 0755 "$SHARE_ROOT"
     install -d -m 0770 -o "$user" -g "$user" "$SHARE_ROOT/$name"
     render_samba_env
     render_share_firewall

@@ -123,7 +123,18 @@ RUN systemctl enable \
 # password hashes, hence 0700 — see lib.sh's LUKE_CAPSULE note for why it is on
 # /data and not in /etc.
 RUN ln -s var/mnt/data /data
-RUN printf 'd /var/mnt 0755 root root -\nd /var/mnt/data 0755 root root -\nd /var/mnt/data/share 0770 root root -\nd /var/lib/lukenasos 0755 root root -\nd /etc/lukenasos/nftables.d 0755 root root -\n' \
+#
+# /var/mnt/data/share is 0755 and not 0770, which is load-bearing: it is the
+# parent every share hangs under, and Samba serves a file AS the user who
+# authenticated. At 0770 root:root nobody but root could traverse it, so every
+# share answered NT_STATUS_ACCESS_DENIED on every file — the port open, the
+# credential accepted, the share listed, and not one byte readable. Found by
+# mounting it (lifecycle phase 1c); no amount of local testing would have.
+#
+# Listing the names of the shares is not the secret; their contents are, and
+# each share directory is 0770 owned by the account that may open it. Creating
+# one still needs root.
+RUN printf 'd /var/mnt 0755 root root -\nd /var/mnt/data 0755 root root -\nd /var/mnt/data/share 0755 root root -\nd /var/lib/lukenasos 0755 root root -\nd /etc/lukenasos/nftables.d 0755 root root -\n' \
         > /usr/lib/tmpfiles.d/lukenasos.conf
 
 # ── update identity ───────────────────────────────────────────────────────
