@@ -138,13 +138,25 @@ echo "$noop \$*" >> "$WORK/m/calls"
 exit 0
 EOF
     done
-    # The Samba image's create-hash.sh, as invoked through podman: reads
-    # username + password twice on stdin, prints the smbpasswd line.
+    # The Samba image's create-hash.sh, as invoked through podman. Modelled on
+    # the real script (ServerContainers/samba, scripts/create-hash.sh), including
+    # the part that broke the first attempt: it writes its prompts to stderr, but
+    # each silent read is followed by a bare `echo` that lands on STDOUT. So the
+    # hash is NOT the whole output — it is preceded by two blank lines. A stub
+    # that emitted only the hash agreed with my reading of the script instead of
+    # with the script, and both were green while the real thing failed.
     cat > "$WORK/m/bin/podman" <<EOF
 #!/bin/bash
 echo "podman \$*" >> "$WORK/m/calls"
-[ -f "$WORK/m/podman-fails" ] && exit 1
-read -r u; read -r p1; read -r _p2
+[ -f "$WORK/m/podman-fails" ] && { echo "Error: initializing source: manifest unknown" >&2; exit 125; }
+printf '>> Enter username: ' >&2
+read -r u
+printf '>> New password: ' >&2
+read -r p1
+echo
+printf '>> Retype password: ' >&2
+read -r _p2
+echo
 printf '%s:1000:XXXXXXXX:%s:[U          ]:LCT-5FE1F7DF:\n' "\$u" "\$(printf '%s' "\$p1" | md5sum | cut -c1-32 | tr 'a-f' 'A-F')"
 EOF
     chmod +x "$WORK/m/bin"/*

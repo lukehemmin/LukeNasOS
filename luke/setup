@@ -403,7 +403,7 @@ do_account() {
 # ── luke setup share ──────────────────────────────────────────────────────
 
 do_share() {
-    local name="$1" user="$2" pw_stdin="$3" password image hash acct
+    local name="$1" user="$2" pw_stdin="$3" password image hash acct hash_err hash_reason
 
     [ -n "$name" ] || die "$EXIT_USAGE" LUKE-E002 "luke setup share needs a name" \
         "no --name was given" "luke setup share --name family --user sangho --password-stdin"
@@ -470,14 +470,36 @@ do_share() {
     # On a fresh machine this is where the container image gets pulled (the
     # quadlet has had nothing to serve until now), so it can take minutes.
     [ "$JSON" = 1 ] || echo "Preparing the share (this pulls the Samba image the first time)..."
+
+    # Grep the hash out rather than taking the whole transcript: create-hash.sh
+    # prompts on stderr but echoes a blank line to STDOUT after each silent
+    # read, so its output is two newlines and then the smbpasswd line. Trusting
+    # the shape of that transcript is how the first version of this failed —
+    # `case "$hash" in "$user":*)` never matched, because the hash was not at the
+    # start of what came back.
+    hash_err=$(mktemp)
     hash=$(printf '%s\n%s\n%s\n' "$user" "$password" "$password" \
-        | podman run --rm -i --entrypoint create-hash.sh "$image" 2>/dev/null) \
-        || hash=""
+        | podman run --rm -i --entrypoint create-hash.sh "$image" 2>"$hash_err" \
+        | grep -E "^$user:[0-9]+:" | tail -1) || hash=""
+
+    # Whatever went wrong travels with the error. The first version sent podman's
+    # stderr to /dev/null, so a missing image, an unreachable registry and a
+    # broken pipe all arrived as the same sentence — the exact dead end
+    # LUKE-E021 cost a day to escape (see docs/errors.md).
+    # `|| true` is load-bearing: on the SUCCESS path this grep filters away every
+    # line there is (stderr holds nothing but the prompts), exits 1, and takes
+    # the whole script down through pipefail — silently, right after saying
+    # "Preparing the share". Reaching for the error message must not become the
+    # error.
+    hash_reason=$(grep -vE '^\s*$|^>>' "$hash_err" | tail -2 | tr '\n' ' ' \
+        | sed 's/  */ /g; s/ $//') || true
+    rm -f "$hash_err"
+
     case "$hash" in
         "$user":*) ;;
         *) die "$EXIT_ERROR" LUKE-E072 \
             "could not create the Samba credential" \
-            "the $image container did not return a password hash; if this machine has no network yet, the image cannot be pulled" \
+            "${hash_reason:-$image returned no password hash and said nothing; if this machine has no network yet, the image cannot be pulled}" \
             "luke doctor" ;;
     esac
 

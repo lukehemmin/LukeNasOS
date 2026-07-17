@@ -211,11 +211,12 @@ journal.
 
 Samba passwords are NT hashes and Unix passwords are not; neither can be
 derived from the other, so the Samba container image turns your password into
-the hash Samba stores. This error means that image could not run — usually
+the hash Samba stores. This error means that image could not run — most often
 because it has not been pulled yet and this machine has no network.
 
-**Fix:** `luke doctor` (network), then re-run. Nothing was half-made: no share
-was recorded and port 445 is still shut.
+**Fix:** the error's own `Cause:` line carries what the container actually said;
+read that first. Then `luke doctor` (network), then re-run. Nothing was
+half-made: no share was recorded and port 445 is still shut.
 
 ## LUKE-E073 — the share was created but Samba did not start
 
