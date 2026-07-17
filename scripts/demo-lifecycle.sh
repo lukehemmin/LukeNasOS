@@ -617,15 +617,34 @@ phase_4_auto_rollback() {
 # -T 20 because ssh-keyscan's default is 5s and this box is emulated and has just
 # been through the rollback dance.
 hostkey_fp() {
-    local out fp _
-    for _ in $(seq 1 "${HOSTKEY_TRIES:-10}"); do
-        out=$(ssh-keyscan -T 20 -p "$SSH_PORT" -t ed25519 localhost 2>&1) || out=""
-        case "$out" in *ssh-ed25519*) break ;; *) out="" ;; esac
-        sleep 3
-    done
-    [ -n "$out" ] || { printf 'no-host-key-on-the-network'; return 0; }
-    fp=$(printf '%s\n' "$out" | ssh-keygen -lf - 2>&1 | awk '{print $2}') || fp=""
-    case "$fp" in SHA256:*) printf '%s' "$fp" ;; *) printf 'unreadable(%s)' "$fp" ;; esac
+    # Asked through a real ssh connection, not ssh-keyscan. The connection this
+    # harness makes a hundred times a run is known to work; ssh-keyscan is a
+    # second, differently-behaved client, and it came back empty against a
+    # machine that ssh was talking to seconds earlier — ten times, over four
+    # minutes, for reasons it was never given a chance to state.
+    #
+    # What lands in a fresh known_hosts is exactly what the server presented,
+    # which is the thing a returning client compares. Reading
+    # /etc/ssh/*.pub instead would miss the failure that matters most: keys
+    # restored on disk but sshd still serving the ones it generated, where the
+    # file says "fixed" and every client still sees the warning.
+    local kh fp err
+    kh=$(mktemp); rm -f "$kh"
+    err=$(mktemp)
+    ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile="$kh" \
+        -o LogLevel=ERROR -o ConnectTimeout=15 -i "$BUILD_DIR/test-key" \
+        "$SSH_USER@localhost" true >/dev/null 2>"$err" || true
+    fp=""
+    [ -s "$kh" ] && fp=$(ssh-keygen -lf "$kh" 2>>"$err" | awk '{print $2}' | head -1)
+    case "$fp" in
+        SHA256:*) rm -f "$kh" "$err"; printf '%s' "$fp" ;;
+        *)  # Say why, here, once. Every earlier version of this function hid
+            # its reason behind a redirect and cost a run to re-ask.
+            echo "  hostkey_fp: no key from $SSH_USER@localhost:$SSH_PORT —" >&2
+            sed 's/^/    /' "$err" >&2 2>/dev/null || true
+            rm -f "$kh" "$err"
+            printf 'no-host-key-presented' ;;
+    esac
 }
 
 # A fingerprint, or stop. Comparing "could not read it" before a reset with
