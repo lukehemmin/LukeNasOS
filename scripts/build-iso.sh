@@ -52,7 +52,7 @@ NETINST_COMPOSE="1.7"
 NETINST_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-${FEDORA_VERSION}-${NETINST_COMPOSE}.iso"
 
 IMAGE_REF="ghcr.io/lukehemmin/lukenasos:stable"
-NETINST="build/fedora-netinst.iso"
+NETINST="build/fedora-netinst-${FEDORA_VERSION}-${NETINST_COMPOSE}.iso"
 OUT="build/lukenasos-x86_64.iso"
 SERIAL=0
 OFFLINE=0
@@ -100,6 +100,20 @@ fi
     echo "== downloading Fedora netinst (F${FEDORA_VERSION}-${NETINST_COMPOSE}) =="
     curl -fL --retry 3 -o "$NETINST" "$NETINST_URL"
 }
+# A file at the expected path is not proof it is the expected ISO: the name is
+# versioned above precisely so a bump cannot reuse the old one, but a truncated
+# download or a hand-placed --netinst can still lie. The volume label is the
+# ISO's own answer to "which Fedora are you".
+netinst_label=$(blkid -o value -s LABEL "$NETINST" 2>/dev/null || true)
+case "$netinst_label" in
+    *-"$FEDORA_VERSION") : ;;
+    "") echo "WARN: cannot read the volume label of $NETINST" >&2 ;;
+    *)  echo "ERROR: $NETINST is '$netinst_label', not Fedora $FEDORA_VERSION." >&2
+        echo "Remove it (or pass --netinst) — remastering the wrong release would" >&2
+        echo "ship an ISO whose kickstart and base image disagree." >&2
+        exit 1 ;;
+esac
+
 [ "$FETCH_ONLY" = 1 ] && { echo "netinst ready: $NETINST"; exit 0; }
 
 # The kickstart the ISO carries: the production contract with the target
