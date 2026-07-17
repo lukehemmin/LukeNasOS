@@ -112,12 +112,38 @@ fi
 
 # The pull runs as a transient systemd unit; we attach to it. Closing the
 # terminal does not kill the update.
-if ! systemd-run --unit=lukenasos-update --wait --pipe \
+#
+# Keep what it said. `--pipe` routes the unit's output through this pipe
+# INSTEAD of the journal, so the old advice — "see: journalctl -u
+# lukenasos-update" — pointed at a journal that is always empty, while the
+# real reason went to /dev/null under --json. An update that fails and cannot
+# say why is the worst error in this CLI: the whole product is "you can undo
+# it", and the user's first question is what happened.
+update_log=$(mktemp) || die "$EXIT_ERROR" LUKE-E021 \
+    "cannot stage the update" "no writable temp space" "luke doctor"
+# shellcheck disable=SC2064  # expand now: the path must survive the trap
+trap "rm -f '$update_log'" EXIT
+
+if [ "$JSON" = 1 ]; then
+    systemd-run --unit=lukenasos-update --wait --pipe \
         --property=Type=oneshot \
-        "${stage_cmd[@]}" 2>&1 | { [ "$JSON" = 1 ] && cat >/dev/null || cat; }; then
+        "${stage_cmd[@]}" > "$update_log" 2>&1
+    stage_rc=$?
+else
+    systemd-run --unit=lukenasos-update --wait --pipe \
+        --property=Type=oneshot \
+        "${stage_cmd[@]}" 2>&1 | tee "$update_log"
+    stage_rc=${PIPESTATUS[0]}
+fi
+
+if [ "$stage_rc" != 0 ]; then
+    # The last few lines are what bootc actually complained about; the rest is
+    # download progress nobody needs at this point.
+    reason=$(grep -viE '^\s*$|Running as unit|Finished with result|Service runtime|CPU time|Memory peak|Main processes terminated' \
+        "$update_log" | tail -3 | tr '\n' ' ' | sed 's/  */ /g')
     die "$EXIT_ERROR" LUKE-E021 \
         "staging the update failed" \
-        "see: journalctl -u lukenasos-update" \
+        "${reason:-$(printf '%s' "$(tail -1 "$update_log")")}" \
         "luke doctor"
 fi
 
