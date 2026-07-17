@@ -30,8 +30,12 @@ ENGINE=${ENGINE:-$(command -v podman || command -v docker)}
 DISK="$BUILD_DIR/lukenasos-test.qcow2"
 DISK_SIZE="${DISK_SIZE:-20G}"
 SSH_PORT="${SSH_PORT:-2222}"
+# LogLevel=ERROR: without it ssh prints "Warning: Permanently added …" to
+# stderr on every call. Harmless until something folds stderr into stdout and
+# feeds the result to jq — then the JSON has a sentence in front of it and the
+# parse fails for a reason that has nothing to do with the machine.
 SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-          -o ConnectTimeout=5 -i "$BUILD_DIR/test-key")
+          -o LogLevel=ERROR -o ConnectTimeout=5 -i "$BUILD_DIR/test-key")
 # Which netinst this project installs from is build-iso.sh's decision, not a
 # second copy of it here. The path carries the version, so bumping Fedora can
 # never silently reuse the previous release's ISO (it nearly did: an F42 image
@@ -255,6 +259,7 @@ assert_eq() {
         echo "ASSERT FAIL: $what — want '$want', got '$got'" >&2
         exit 1
     fi
+    rm -f "$err"
     echo "   ok: $what = $got"
 }
 
@@ -268,8 +273,12 @@ assert_eq() {
 assert_json() {
     local what="$1" field="$2" want="$3"; shift 3
     [ "${1:-}" = "--" ] && shift
-    local out got
-    out=$(vm_root "$@" 2>&1) || true
+    # stdout is the answer, stderr is commentary. Parsing them together is how
+    # a passing update got reported as '<not json>': ssh's own warning was
+    # sitting in front of a perfectly good {"result":"staged"}.
+    local out err got
+    err=$(mktemp)
+    out=$(vm_root "$@" 2>"$err") || true
     got=$(printf '%s' "$out" | jq -r "$field" 2>/dev/null) || got="<not json>"
     if [ "$want" != "$got" ]; then
         {
