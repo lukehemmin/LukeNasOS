@@ -98,6 +98,13 @@ TLS
     fi
 }
 
+# Written to a temp file and moved into place: the NetworkManager hook renders
+# this same file when an address arrives, possibly while the boot-time run is
+# still going, and a getty reading a half-written banner is exactly the kind of
+# thing that reads as brokenness. /run is one filesystem, so the move is atomic.
+TMP="$OUT.$$"
+trap 'rm -f "$TMP"' EXIT
+
 {
     echo
     echo "  LukeNasOS"
@@ -127,6 +134,7 @@ TLS
     echo "  Version: ${booted_ver}$( [ -n "$staged_ver" ] && echo "  (staged: ${staged_ver}, applies on reboot)" )"
     echo "  Next:    luke status · luke doctor"
     echo
-} > "$OUT"
+} > "$TMP"
+mv -f "$TMP" "$OUT"
 
 exit 0
