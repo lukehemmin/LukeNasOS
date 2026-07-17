@@ -3,6 +3,58 @@
 Deferred scope from the /autoplan review (2026-07-12, branch `260709_test`).
 Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
 
+> **Shipped 2026-07-17** (PR #3, #4), removed from this list: the install-UX repair
+> wave (one-disk erase, biosboot, setup token, quiet boot, ISO branding, SPEC sweep,
+> BIOS + multi-disk CI), the nftables policy — required by SPEC §9 since the
+> beginning and absent for just as long — and the Fedora 44 / greenboot 0.16
+> migration with its EOL watch. The lifecycle E2E is green on F44, automatic
+> rollback included.
+
+## Next: the first-boot wizard
+
+Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-20260716-193011.md`
+(eng + design reviewed, decisions recorded there). The repair wave was Phase 1 of it;
+this is the rest, and it is the first work that puts a screen in front of a user.
+
+- [ ] **`luke setup` verbs** — `account | share | hostname`, `--json` like every other
+  verb. The wizard is a Cockpit plugin and calls these via `cockpit.spawn(superuser)`;
+  it never runs `useradd`/`smbpasswd`/`nft` itself. One audited privileged surface,
+  three front ends (browser, console, ssh). `luke setup share` also opens port 445 and
+  creates the Samba credential — the firewall shipped closed on purpose.
+  (M → S, P1, blocks: everything below)
+
+- [ ] **First-boot wizard, step 1** — "Name your NAS and your account". No password
+  fields: the PAM forced-change at login already set one, and it transfers to the new
+  account. Then lock the installer default, render the sign-out interstitial, and only
+  then `loginctl terminate-user` — a silent disconnect reads as a crash on the user's
+  first action. Resumes at step 2 from a stamp file.
+  (L → M, P1, depends: luke setup verbs)
+
+- [ ] **Wizard steps 2–4** — network view (read-only: SPEC §9 keeps NetworkManager but
+  the wizard mutating it is not designed yet), first share, and a Done screen that
+  coaches the last mile (`\<ip>\<share>`, `smb://<ip>/<share>`, which credentials).
+  The arc ends in Finder, not in the browser. (L → M, P2)
+
+- [ ] **Health strip** — the product's thesis as a component: truthful first-boot states
+  (`recovery seed: capturing…`, not `factory reset ready`), live poll of
+  `luke status --json`, a state table per segment (pending/ok/failed/degraded), stacked
+  under 480px, designed in both themes. (M → S, P2)
+
+- [ ] **Post-wizard landing page** — Phase 1 hides stock Cockpit pages (`luke
+  unlock-console` is the escape hatch), so without this `:9090` after setup is an empty
+  shell. Health strip + share list + `luke status` facts. The seed of the timeline UI.
+  (M → S, P2)
+
+- [ ] **Playwright E2E for the wizard** — `cockpit.spawn` runs over websockets, so curl
+  cannot exercise a Cockpit plugin. This scaffolding is why the wizard is ~1.5 weeks and
+  not a half-day. Runs at a phone viewport and a desktop one, light and dark, and mounts
+  the share from a second VM through the firewall. (M → S, P1, with the wizard)
+
+- [ ] **Interactive ISO variant** — `--interactive` drops `user`/`network`/`timezone`/
+  `keyboard` from the kickstart so anaconda asks, and must also strip the `chage -d 0`
+  line (it hard-fails once `user` is gone) and the banner's token reminder. Second
+  artifact: nightly stays the unattended one. (S → S, P3)
+
 ## Deferred past M1
 
 - [ ] **mDNS `luke.local` discovery** — so a headless NAS is findable without hunting for
@@ -42,13 +94,6 @@ Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
 - [ ] **Multi-disk topologies** — btrfs RAID1, and the separate boot-disk + data-pool
   layout that most DIY NAS builds actually use. M1 assumes a single disk; the contract
   reserves room for this. (L → M, P2)
-
-- [ ] **nftables firewall** — currently "future" in the spec. It is a hard requirement
-  before any network-facing service ships — and the requirement is already breached:
-  `Containerfile:70` enables sshd while SPEC §9 says disabled-by-default. Pulled into the
-  install-UX design's repair wave (eng review 2026-07-16): minimal policy (22 + 9090,
-  default drop inbound) + resolve the sshd/SPEC contradiction. (M → S, P1, blocks:
-  first-boot wizard)
 
 - [ ] **ISO volume-label rebrand** — the installer ISO keeps Fedora's volume label; only
   menuentry text is branded. Deliberately deferred (eng review 2026-07-16): the label is
