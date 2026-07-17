@@ -390,21 +390,71 @@ phase_1_fresh_boot() {
 # smbclient, run from the QEMU host through the forwarded port, so the packets
 # arrive on the guest's eth0 and meet the input chain. Echoes open/closed/<data>.
 smb_get() {
-    # smb_get SHARE FILE — print the file's contents, or "closed" if SMB will not
-    # talk to us at all.
+    # smb_get SHARE FILE — the file's contents, or "closed: <what smbclient
+    # said>".
+    #
+    # The reason is part of the answer, deliberately. Every way this can fail —
+    # the port dropped, the password refused, the share absent, smbd not
+    # listening yet — looks identical from out here, and the first version
+    # reported all of them as the bare word "closed", which is how an assertion
+    # tells you it failed while refusing to say why.
     #
     # Fetched to a file rather than `get FILE -`: smbclient narrates to stdout
     # ("getting file ... as - (12.3 kb/s)"), so reading the download off stdout
-    # would compare the file's contents plus a sentence about them, and fail with
-    # a diff nobody could read.
-    local tmp out
+    # would compare the file's contents plus a sentence about them.
+    local tmp err out
     tmp=$(mktemp); rm -f "$tmp"
-    if ! smbclient "//localhost/$1" -p "$SMB_PORT" -U "$SETUP_USER%$SETUP_PASSWORD" \
-            -c "get $2 $tmp" >/dev/null 2>&1 || [ ! -f "$tmp" ]; then
-        rm -f "$tmp"; echo closed; return
+    err=$(mktemp)
+    if smbclient "//localhost/$1" -p "$SMB_PORT" -U "$SETUP_USER%$SETUP_PASSWORD" \
+            -c "get $2 $tmp" >"$err" 2>&1 && [ -f "$tmp" ]; then
+        out=$(cat "$tmp"); rm -f "$tmp" "$err"
+        printf '%s' "$out"; return
     fi
-    out=$(cat "$tmp"); rm -f "$tmp"
-    printf '%s' "$out"
+    out=$(grep -vE '^\s*$' "$err" | tail -2 | tr '\n' ' ' | sed 's/  */ /g; s/ $//') || true
+    rm -f "$tmp" "$err"
+    printf 'closed: %s' "${out:-smbclient said nothing at all}"
+}
+
+# open | closed — for the assertion that only cares which, not why.
+smb_state() {
+    case "$(smb_get "$1" "$2")" in closed*) echo closed ;; *) echo open ;; esac
+}
+
+# Poll until the share actually serves, then hand back to the assertion that
+# says what it served. Dumps the machine's side once if it never does — a
+# timeout that only says "closed" costs another twenty-minute run to learn
+# nothing.
+wait_smb() {
+    local _
+    for _ in $(seq 1 "${SMB_WAIT_TRIES:-36}"); do
+        [ "$(smb_state "$1" "$2")" = open ] && return 0
+        sleep 5
+    done
+    smb_debug
+    return 0   # let the assertion below report the failure, with its reason
+}
+
+# Everything the machine knows about why its share will not open. Printed once,
+# on failure, because the alternative is another twenty-minute run that says
+# "closed" again.
+smb_debug() {
+    echo "── the share did not open; asking the machine why ──" >&2
+    echo "· is 445 open in the ruleset?" >&2
+    vm_root nft list ruleset 2>&1 | grep -E "dport (445|22|9090)" >&2 || echo "  (no 445 rule)" >&2
+    echo "· the rule file luke setup share wrote:" >&2
+    vm_root cat /etc/lukenasos/nftables.d/10-shares.nft >&2 2>&1 || echo "  (absent)" >&2
+    echo "· is anything listening on 445?" >&2
+    vm_root ss -ltnp >&2 2>&1 | grep -E ":445|:139" || echo "  (nothing on 445)" >&2
+    echo "· the container:" >&2
+    vm_root podman ps -a --format '{{.Names}} {{.Status}} {{.Image}}' >&2 2>&1 || true
+    echo "· what the capsule told Samba (hashes redacted):" >&2
+    vm_root cat /var/mnt/data/.lukenasos/samba.env 2>&1 \
+        | sed -E 's/^(ACCOUNT_[a-z0-9_-]+)=.*/\1=<redacted>/' >&2 || true
+    echo "· the share directory:" >&2
+    vm_root ls -la "/var/mnt/data/share/$SETUP_SHARE" >&2 2>&1 || true
+    echo "· samba's own account of itself:" >&2
+    vm_root podman logs lukenasos-samba >&2 2>&1 | tail -25 || true
+    echo "──────────────────────────────────────────────────" >&2
 }
 
 phase_1c_setup() {
@@ -474,7 +524,7 @@ phase_1c_setup() {
     # ── the share ──
     # Shut before a share exists — the promise SPEC §9 makes and the reason
     # `luke setup share` has to open it.
-    assert_eq "SMB is shut before the first share" "closed" "$(smb_get "$SETUP_SHARE" x)"
+    assert_eq "SMB is shut before the first share" "closed" "$(smb_state "$SETUP_SHARE" x)"
 
     # Real podman, real create-hash.sh, real image pull. On a fresh machine this
     # is the first time the Samba image is fetched, because the quadlet has had
@@ -487,6 +537,11 @@ phase_1c_setup() {
 
     vm_root sh -c "'echo precious > /var/mnt/data/share/$SETUP_SHARE/family-photos.txt'"
     vm_root chown "$SETUP_USER:$SETUP_USER" "/var/mnt/data/share/$SETUP_SHARE/family-photos.txt"
+
+    # `systemctl is-active` says the container started, not that smbd inside it
+    # has bound 445 — and on a TCG-emulated host the gap between those is not
+    # small. Wait for the service the user would wait for.
+    wait_smb "$SETUP_SHARE" family-photos.txt
 
     # The whole claim in one line: the firewall opened, Samba is serving, the NT
     # hash the container computed matches the password the owner typed, and the
@@ -602,6 +657,11 @@ phase_5_factory_reset() {
     # Bytes surviving is not the promise; the NAS coming back is. The share
     # definition, the Samba credential and the open port all had to be rebuilt
     # from /data into a blank /etc for this to answer.
+    #
+    # The wait is longer here than after setup: factory-reset clears
+    # /var/lib/containers/storage, so Samba is pulling its image again from
+    # nothing, on an emulated machine.
+    SMB_WAIT_TRIES="${SMB_WAIT_TRIES_AFTER_RESET:-90}" wait_smb "$SETUP_SHARE" family-photos.txt
     assert_eq "the share came back, and still opens from the LAN" "precious" \
         "$(smb_get "$SETUP_SHARE" family-photos.txt)"
 }
