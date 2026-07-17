@@ -31,20 +31,32 @@
 #   --out P        Output path (default: build/lukenasos-x86_64.iso)
 #   --serial       Add inst.text console=ttyS0 kernel args (headless/QEMU)
 #   --offline      image-builder path (see above)
+#
+#   --fetch-only   Download the netinst ISO and stop. This script owns which
+#                  Fedora the project builds against; CI asks rather than
+#                  keeping its own copy of the URL (it kept four, and the
+#                  compose suffix moves every respin).
+#   --print-netinst-key
+#                  Print the version+compose string, for CI cache keys.
 
 set -o errexit -o nounset -o pipefail
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO_ROOT"
 
-FEDORA_VERSION=42
-NETINST_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-${FEDORA_VERSION}-1.1.iso"
+FEDORA_VERSION=44
+# The compose suffix is not derivable from the version: F42 shipped -1.1, F44
+# ships -1.7. It changes per respin, so it lives here as its own knob rather
+# than as a string someone has to notice inside a URL.
+NETINST_COMPOSE="1.7"
+NETINST_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-${FEDORA_VERSION}-${NETINST_COMPOSE}.iso"
 
 IMAGE_REF="ghcr.io/lukehemmin/lukenasos:stable"
 NETINST="build/fedora-netinst.iso"
 OUT="build/lukenasos-x86_64.iso"
 SERIAL=0
 OFFLINE=0
+FETCH_ONLY=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,6 +65,9 @@ while [ $# -gt 0 ]; do
         --out)     OUT="$2"; shift 2 ;;
         --serial)  SERIAL=1; shift ;;
         --offline) OFFLINE=1; shift ;;
+        --fetch-only) FETCH_ONLY=1; shift ;;
+        --print-netinst-key)
+            printf '%s-%s\n' "$FEDORA_VERSION" "$NETINST_COMPOSE"; exit 0 ;;
         -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -82,9 +97,10 @@ fi
 
 # ── default: online installer via netinst remaster (no privileges) ──────
 [ -f "$NETINST" ] || {
-    echo "== downloading Fedora netinst =="
+    echo "== downloading Fedora netinst (F${FEDORA_VERSION}-${NETINST_COMPOSE}) =="
     curl -fL --retry 3 -o "$NETINST" "$NETINST_URL"
 }
+[ "$FETCH_ONLY" = 1 ] && { echo "netinst ready: $NETINST"; exit 0; }
 
 # The kickstart the ISO carries: the production contract with the target
 # image ref substituted in.
