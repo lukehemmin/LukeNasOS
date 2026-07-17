@@ -605,18 +605,46 @@ phase_4_auto_rollback() {
 }
 
 # The machine's ssh identity as a client on the LAN sees it. Not read out of
-# /etc: the question is what the network answers with, which is what a returning
-# client compares against its known_hosts.
+# /etc: what a returning client compares against known_hosts is what the network
+# answers with.
+#
+# This must never kill the run, and it did. It was two silenced pipelines under
+# errexit+pipefail, and `ssh-keygen -lf -` answers empty input with 255 — so when
+# ssh-keyscan came back empty, phase 5 died on its second line, printing nothing,
+# with an exit code identical to an ssh failure. Now it retries, keeps its
+# stderr, and reports its own failure as a value the caller must look at.
+#
+# -T 20 because ssh-keyscan's default is 5s and this box is emulated and has just
+# been through the rollback dance.
 hostkey_fp() {
-    ssh-keyscan -p "$SSH_PORT" -t ed25519 localhost 2>/dev/null \
-        | ssh-keygen -lf - 2>/dev/null | awk '{print $2}'
+    local out fp _
+    for _ in $(seq 1 "${HOSTKEY_TRIES:-10}"); do
+        out=$(ssh-keyscan -T 20 -p "$SSH_PORT" -t ed25519 localhost 2>&1) || out=""
+        case "$out" in *ssh-ed25519*) break ;; *) out="" ;; esac
+        sleep 3
+    done
+    [ -n "$out" ] || { printf 'no-host-key-on-the-network'; return 0; }
+    fp=$(printf '%s\n' "$out" | ssh-keygen -lf - 2>&1 | awk '{print $2}') || fp=""
+    case "$fp" in SHA256:*) printf '%s' "$fp" ;; *) printf 'unreadable(%s)' "$fp" ;; esac
+}
+
+# A fingerprint, or stop. Comparing "could not read it" before a reset with
+# "could not read it" after would pass, and would mean nothing.
+require_hostkey_fp() {
+    local fp; fp=$(hostkey_fp)
+    case "$fp" in
+        SHA256:*) printf '%s' "$fp" ;;
+        *) echo "ASSERT FAIL: cannot read this machine's ssh host key ($fp) — the" >&2
+           echo "  comparison across the reset would be two failures agreeing." >&2
+           exit 1 ;;
+    esac
 }
 
 phase_5_factory_reset() {
     say "phase 5: factory reset preserves /data — and the NAS that serves it"
     local uid_before fp_before
     uid_before=$(vm_root id -u "$SETUP_USER")
-    fp_before=$(hostkey_fp)
+    fp_before=$(require_hostkey_fp)
     vm_root luke factory-reset --yes-i-typed-the-hostname
     reboot_vm
 
@@ -650,7 +678,7 @@ phase_5_factory_reset() {
     # StrictHostKeyChecking=no and throws known_hosts at /dev/null — so ask the
     # network directly, the way a returning client does.
     assert_eq "the machine comes back as itself, not as an impostor" \
-        "$fp_before" "$(hostkey_fp)"
+        "$fp_before" "$(require_hostkey_fp)"
 
     assert_eq "data survived reset" "precious" "$(vm_root cat /data/share/family-photos.txt)"
 
