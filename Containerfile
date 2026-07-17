@@ -8,8 +8,11 @@
 # NEVER bake credentials into this file. First-boot credentials come from
 # the installer (installer/luke.ks). CI greps for leaked keys.
 
-# fedora-bootc:42 as of 2026-07-12. The scheduled rebuild workflow proposes bumps.
-ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:077182b6ba853b3348d0bede602ac30b9e6568c6422bcf0654de5af96f19b9c3
+# fedora-bootc:44 as of 2026-07-17 (SUPPORT_END=2027-05-19). The scheduled
+# rebuild workflow proposes digest bumps within the tag; the release bump is a
+# deliberate act, because it is never just a digest — see the greenboot note
+# at the enable list below, and the EOL watch in rebuild.yml.
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:d5a4f1265d5b0f27a75c91b8b16d19a647d09b712beb4312135eb53ce2c257ac
 FROM ${BASE_IMAGE}
 
 ARG VERSION=0.1.0-dev
@@ -68,20 +71,25 @@ COPY config/containers/samba.container /usr/share/containers/systemd/samba.conta
 # never run, and a broken deployment boots to a green banner (verified the
 # hard way in the first full lifecycle run).
 #
+# greenboot 0.16 (F43+) is a Rust rewrite that consolidated nine units into
+# three. The eight names this list used to carry — loading-message, status,
+# task-runner, grub2-set-counter, grub2-set-success,
+# rpm-ostree-grub2-check-fallback, redboot-auto-reboot, redboot-task-runner —
+# do not exist any more; their work moved inside the `greenboot` binary.
+# `systemctl enable` fails loudly on a name it cannot find, which is the only
+# reason this migration announced itself instead of silently disarming the
+# rollback. greenboot-healthcheck.service pulls the other two in via its
+# Also=, but they are listed anyway: this list is where a reader learns what
+# the headline feature is made of.
+#
 # sshd is already on by the base preset; the enable here is deliberate, not
 # redundant. A headless appliance whose recovery path depends on ssh should
 # say so in one place rather than inherit it (SPEC §9). It is only defensible
 # with a firewall in front of it, which is why nftables is on this list.
 RUN systemctl enable \
         greenboot-healthcheck.service \
-        greenboot-loading-message.service \
-        greenboot-status.service \
-        greenboot-task-runner.service \
-        greenboot-grub2-set-counter.service \
-        greenboot-grub2-set-success.service \
-        greenboot-rpm-ostree-grub2-check-fallback.service \
-        redboot-auto-reboot.service \
-        redboot-task-runner.service \
+        greenboot-set-rollback-trigger.service \
+        greenboot-success.target \
         lukenasos-boot-check.service \
         lukenasos-banner.service \
         lukenasos-scrub.timer \
