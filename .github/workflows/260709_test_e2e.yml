@@ -143,3 +143,118 @@ jobs:
         run: |
           grep -Eq 'part /boot .*--fstype=ext4' installer/luke.ks
           grep -Eq 'mkfs\.ext4 .*lukenasos-boot' scripts/install-disk.sh
+
+  install-contract:
+    # Four things a real boot taught us in one afternoon. Each is one line in
+    # the kickstart and each was invisible until someone watched a screen, so
+    # each gets an assertion that outlives the person who remembers why.
+    runs-on: ubuntu-latest
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - name: BIOS machines can install (the biosboot partition)
+        # Without it: "Installation Destination (Kickstart insufficient)",
+        # forever, on a machine nobody is watching.
+        run: grep -Eq '^part biosboot .*--fstype=biosboot' installer/luke.ks
+      - name: Exactly one disk is erased
+        # clearpart --all is only safe because %pre scopes it with
+        # ignoredisk --only-use. If the %include ever goes, "all" means all.
+        run: |
+          grep -q '^%include /tmp/luke-disk.ks' installer/luke.ks
+          grep -q 'ignoredisk --only-use=' installer/luke.ks
+      - name: No well-known password ships
+        # A password every install shares is not a secret; it makes ownership
+        # a race that the first stranger on the LAN wins.
+        run: |
+          if grep -Eq 'password=(lukenasos|luke)\b|--password=[^ ]*--plaintext' installer/luke.ks; then
+            echo "installer/luke.ks ships a well-known password (SPEC §10)" >&2
+            exit 1
+          fi
+          grep -q 'chage -d 0 luke' installer/luke.ks
+          grep -q 'setup-token' installer/luke.ks
+      - name: The banner is the home screen, not dmesg
+        run: grep -Eq '^bootloader --append=.*quiet' installer/luke.ks
+
+  multidisk-guard:
+    # The bug this repo would have shipped: two disks, and `clearpart --all`
+    # takes both. tests/pre-disk.sh proves the decision tree against a stub
+    # lsblk; this proves the real installer, with real lsblk, asks first and
+    # writes nothing while it waits.
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU + tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf mtools dosfstools jq podman xorriso
+      - name: Enable KVM on the runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Cache the netinst ISO
+        uses: actions/cache@v4
+        with:
+          path: build/fedora-netinst.iso
+          key: fedora-netinst-42
+      - name: Download netinst ISO if not cached
+        run: |
+          mkdir -p build
+          [ -f build/fedora-netinst.iso ] || curl -fL -o build/fedora-netinst.iso \
+            https://download.fedoraproject.org/pub/fedora/linux/releases/42/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-42-1.1.iso
+      - name: Two disks, no target given — ask, do not erase
+        timeout-minutes: 20
+        run: scripts/demo-lifecycle.sh multidisk-guard
+      - name: Keep the serial log when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multidisk-serial-log
+          path: build/multidisk-serial.log
+
+  bios-install:
+    # The screenshot that started this: a BIOS machine stalling at the
+    # partitioning screen because the kickstart had no biosboot partition. The
+    # install-contract job asserts the line exists; only a BIOS install proves
+    # it works. Install only — the full lifecycle already runs on UEFI.
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU + tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils mtools dosfstools jq podman xorriso
+      - name: Enable KVM on the runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Cache the netinst ISO
+        uses: actions/cache@v4
+        with:
+          path: build/fedora-netinst.iso
+          key: fedora-netinst-42
+      - name: Download netinst ISO if not cached
+        run: |
+          mkdir -p build
+          [ -f build/fedora-netinst.iso ] || curl -fL -o build/fedora-netinst.iso \
+            https://download.fedoraproject.org/pub/fedora/linux/releases/42/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-42-1.1.iso
+      - name: Install on a BIOS machine (no OVMF)
+        timeout-minutes: 90
+        run: |
+          scripts/demo-lifecycle.sh registry-up
+          scripts/demo-lifecycle.sh build-variants
+          FIRMWARE=bios scripts/demo-lifecycle.sh install
+      - name: The installed disk carries a BIOS boot partition
+        run: |
+          sudo apt-get install -y gdisk
+          sgdisk -p build/lukenasos-test.qcow2 2>/dev/null || true
+          # qcow2 needs a raw view to read the partition table.
+          qemu-img convert -f qcow2 -O raw build/lukenasos-test.qcow2 /tmp/installed.raw
+          sgdisk -p /tmp/installed.raw | tee /tmp/parts.txt
+          grep -q "EF02" /tmp/parts.txt || {
+            echo "no BIOS boot partition on the installed disk — the BIOS stall is back" >&2
+            exit 1
+          }
