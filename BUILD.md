@@ -126,7 +126,7 @@ Anaconda cannot express.
 
 `bootc install to-filesystem` is not a partitioner. It installs into a filesystem you have
 already prepared: partitioning, `mkfs`, subvolume creation, kernel arguments
-(`rootflags=subvol=@sysroot`), ESP handling, and SELinux labelling are all on us. Budget
+(`rootflags=subvol=root`), ESP handling, and SELinux labelling are all on us. Budget
 accordingly — this is the largest schedule risk in the project.
 
 ### Installer ISO
