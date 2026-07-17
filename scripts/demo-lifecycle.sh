@@ -32,7 +32,11 @@ DISK_SIZE="${DISK_SIZE:-20G}"
 SSH_PORT="${SSH_PORT:-2222}"
 SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=5 -i "$BUILD_DIR/test-key")
-NETINST_ISO="${NETINST_ISO:-$BUILD_DIR/fedora-netinst.iso}"
+# Which netinst this project installs from is build-iso.sh's decision, not a
+# second copy of it here. The path carries the version, so bumping Fedora can
+# never silently reuse the previous release's ISO (it nearly did: an F42 image
+# sat at the old unversioned path while FEDORA_VERSION already said 44).
+NETINST_ISO="${NETINST_ISO:-$BUILD_DIR/fedora-netinst-$("$REPO_ROOT/scripts/build-iso.sh" --print-netinst-key).iso}"
 QEMU_RAM="${QEMU_RAM:-4096}"
 # uefi | bios. The BIOS path is not a variant nobody uses: half the machines a
 # self-hoster resurrects boot that way, and the missing biosboot partition
@@ -161,7 +165,8 @@ qemu_common_args() {
 install_vm() {
     say "unattended install (netinst + OEMDRV kickstart)"
     [ -f "$NETINST_ISO" ] || {
-        echo "Missing $NETINST_ISO — download a Fedora Everything netinst ISO to that path" >&2
+        echo "Missing $NETINST_ISO" >&2
+        echo "Fetch it with: scripts/build-iso.sh --fetch-only" >&2
         echo "(or set NETINST_ISO=/path/to/iso)" >&2
         exit 1
     }

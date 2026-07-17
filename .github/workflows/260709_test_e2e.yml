@@ -38,7 +38,7 @@ jobs:
       - name: Cache the netinst ISO
         uses: actions/cache@v4
         with:
-          path: build/fedora-netinst.iso
+          path: build/fedora-netinst-${{ steps.netinst.outputs.key }}.iso
           key: fedora-netinst-${{ steps.netinst.outputs.key }}
       - name: Build the installer ISO
         run: scripts/build-iso.sh
@@ -126,7 +126,7 @@ jobs:
       - name: Cache the netinst ISO
         uses: actions/cache@v4
         with:
-          path: build/fedora-netinst.iso
+          path: build/fedora-netinst-${{ steps.netinst.outputs.key }}.iso
           key: fedora-netinst-${{ steps.netinst.outputs.key }}
       - name: Download netinst ISO if not cached
         run: scripts/build-iso.sh --fetch-only
@@ -247,7 +247,7 @@ jobs:
       - name: Cache the netinst ISO
         uses: actions/cache@v4
         with:
-          path: build/fedora-netinst.iso
+          path: build/fedora-netinst-${{ steps.netinst.outputs.key }}.iso
           key: fedora-netinst-${{ steps.netinst.outputs.key }}
       - name: Download netinst ISO if not cached
         run: scripts/build-iso.sh --fetch-only
@@ -285,7 +285,7 @@ jobs:
       - name: Cache the netinst ISO
         uses: actions/cache@v4
         with:
-          path: build/fedora-netinst.iso
+          path: build/fedora-netinst-${{ steps.netinst.outputs.key }}.iso
           key: fedora-netinst-${{ steps.netinst.outputs.key }}
       - name: Download netinst ISO if not cached
         run: scripts/build-iso.sh --fetch-only
