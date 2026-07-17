@@ -283,10 +283,24 @@ assert_json() {
             vm_root bootc --version 2>&1 | sed 's/^/     /' || true
             vm_root bootc status --json 2>&1 | head -c 400 | sed 's/^/     /' || true
             echo
-            echo "   --- SELinux denials (a policy refusal reads as a broken pipe) ---"
-            vm_root ausearch -m avc -ts recent 2>&1 | tail -15 | sed 's/^/     /' || true
+            echo "   --- SELinux: is it even refusing anything? (ausearch may be absent) ---"
+            vm_root journalctl -b --no-pager -g avc 2>&1 | tail -8 | sed 's/^/     /' || true
+            echo "   --- the bus systemd-run would pick, in the context luke runs in ---"
+            # "Connection reset by peer" from systemd-run is PID 1 hanging up on
+            # the D-Bus request. What the client asks, and which bus it asks on,
+            # is decided by this environment — so print it rather than guess it
+            # for the seventh time.
+            # shellcheck disable=SC2016  # these must expand in the VM, not here
+            vm_root sh -c 'echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-<unset>}"; echo "DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-<unset>}"; id; ls -l /run/systemd/private 2>&1' 2>&1 | sed 's/^/     /' || true
+            echo "   --- does the same call work with --system, or at all, right now? ---"
+            # shellcheck disable=SC2016  # $? must expand in the VM, not here
+            vm_root sh -c 'systemd-run --system --unit=probe-sys --wait --pipe --property=Type=oneshot /bin/true; echo "--system: exit $?"' 2>&1 | sed 's/^/     /' || true
+            # shellcheck disable=SC2016
+            vm_root sh -c 'systemd-run --unit=probe-plain --wait --pipe --property=Type=oneshot /bin/true; echo "plain: exit $?"' 2>&1 | sed 's/^/     /' || true
+            # shellcheck disable=SC2016
+            vm_root sh -c 'systemd-run --unit=probe-nopipe --wait --property=Type=oneshot /bin/true; echo "no --pipe: exit $?"' 2>&1 | sed 's/^/     /' || true
             echo "   --- what PID 1 itself thought ---"
-            vm_root journalctl -b _PID=1 --no-pager -n 15 2>&1 | sed 's/^/     /' || true
+            vm_root journalctl -b _PID=1 --no-pager -n 12 2>&1 | sed 's/^/     /' || true
         } >&2
         exit 1
     fi
