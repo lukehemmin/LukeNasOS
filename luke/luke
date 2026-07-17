@@ -17,6 +17,7 @@ Usage: luke <verb> [options]
 
 Verbs:
   status         What is running, what is staged, what happened last
+  setup          Name this NAS, create the administrator, make the first share
   update         Check for and stage an OS update (applies on reboot)
   undo           Boot the previous OS version on next reboot
   factory-reset  Return the OS to its install state; /data is preserved
@@ -32,7 +33,7 @@ verb="${1:-}"
 shift
 
 case "$verb" in
-    status|update|undo|factory-reset|doctor)
+    status|setup|update|undo|factory-reset|doctor)
         exec "$LIBEXEC/$verb" "$@"
         ;;
     -h|--help|help)

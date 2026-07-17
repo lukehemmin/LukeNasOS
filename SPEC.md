@@ -222,6 +222,28 @@ complete, so power loss mid-reset leaves the system bootable.
 "Data preserved" that leaves the shares inaccessible is a broken promise. The identity
 capsule is what makes the preserved bytes usable after a reset.
 
+**How (normative).** The two columns above only both hold if something writes the left one
+back into the cleared right one. That something is `lukenasos-identity.service`, and the
+capsule is its input:
+
+| `/data/.lukenasos/` | holds |
+|---|---|
+| `accounts/<name>.json` | name, **uid/gid**, password hash, shell, groups, authorized_keys, Samba hash |
+| `shares/<name>.json` | share name, path, who may open it |
+| `hostname` | what this NAS is called |
+| `samba.env` | generated from the two above; the Samba container's `EnvironmentFile` |
+
+`luke setup` writes the capsule **before** it touches `/etc`, never the other way round: a
+change applied but not recorded is one the next factory reset silently forgets. The unit
+converges on every boot rather than detecting resets, because "the `/etc` under me is not
+the one I configured" also happens when the boot disk is moved to another machine.
+
+The uid is restored, not reassigned. Every file on `/data` is owned by a number, and an
+account recreated with a different one is a stranger to its own files — the reset would
+preserve the bytes and hand them to nobody, which is this section's failure mode wearing a
+different hat. Retiring the installer's `luke` account is re-asserted on every boot for the
+same reason: a fresh `/etc` brings it back unlocked, holding the setup token's password.
+
 ### 5.3 Confirmation
 
 Before any destructive action the user sees what survives and what does not, with real
@@ -339,6 +361,12 @@ SMB (445/139) is **not** open by installing the OS. `luke setup share` opens it 
 first share is created and closes it with the last: a file-sharing port that exists
 because the OS booted, rather than because a share does, is a port nobody asked for.
 
+Mechanically, the rule is a file — `luke setup share` writes
+`/etc/lukenasos/nftables.d/10-shares.nft` and `nftables.conf` globs that directory in, so
+the open port is part of the policy that gets loaded rather than a live rule sitting
+outside it. `lukenasos-identity.service` rewrites the file from the capsule, which is what
+reopens SMB after a factory reset clears `/etc`.
+
 ## 10. Users
 
 First boot creates the administrator (`luke`, in `wheel`). There is no shipped default
@@ -359,6 +387,22 @@ The banner stops printing the token, and the machine deletes it, the moment the 
 change happens. Automated installs override the account with their own `--kickstart`,
 as before. An appliance you cannot log into is not an appliance; an appliance anyone can
 log into is not yours.
+
+`luke` is the installer's account, not the user's. `luke setup account --name <you>`
+creates the real administrator and **carries the password over** — the one already chosen
+at the forced change, copied as a hash — so nobody types a third password on a phone. It
+is refused while the token is unspent (normative): the hash on disk would still be the
+token, and an administrator whose password was printed on a screen is not an
+administrator. Only once the new account is proven to have a usable password is `luke`
+locked and expired — never deleted, because its uid appears in the machine's own history,
+and a machine with no way in is worse than one with a locked door.
+
+Samba is the exception to "one password", and unavoidably so: SMB stores NT hashes, and
+no NT hash can be derived from a Unix one. `luke setup share` therefore asks for the same
+password once more (`--password-stdin` only — a flag would land in shell history, `ps`,
+and the journal) and stores the **hash** the Samba container computes, never the plaintext
+of an account that also opens ssh and Cockpit. The image itself defines no Samba account;
+`verify-static` fails if one appears.
 
 ## 11. Build and Distribution
 

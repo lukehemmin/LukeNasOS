@@ -45,11 +45,13 @@ said — read that first; it is the answer in most cases. Common ones: disk
 pressure (`luke doctor` → disk space), a half-reachable registry, or a
 signature rejection.
 
-`journalctl -u lukenasos-update` is **not** where to look, and this document
-used to say it was. The unit runs under `systemd-run --pipe`, which routes its
-output through the pipe instead of the journal, so the journal holds nothing
-but systemd's own "Failed to start" line. That dead end cost a real
-investigation; the reason now travels with the error instead.
+`journalctl -u lukenasos-update` has the unit's full output if you want more
+than the one line. That was not true for most of this project's life: the unit
+ran under `systemd-run --pipe`, which routed its output through the pipe
+instead of the journal, so the journal held nothing but systemd's own "Failed
+to start" line while this page sent people there. Dropping `--pipe` (it also
+broke staging over ssh entirely — SELinux refuses to let `dbus-broker` read an
+ssh session's fifo) fixed the advice and the bug at once.
 
 ## LUKE-E023 — this version was rolled back on this machine
 
@@ -115,3 +117,108 @@ that write fails silently and the headline safety feature does not exist.
 **Fix:** verify with `findmnt /boot`. The partition contract (SPEC.md §2)
 requires ext4 there; reinstalling with `installer/luke.ks` is the honest
 fix.
+
+## LUKE-E060 — the data filesystem is not mounted
+
+`luke setup` records what you decide — your account, this NAS's name, your
+shares — into the identity capsule on `/data`, and only then applies it. That
+is what makes a factory reset give you your NAS back rather than just your
+bytes (SPEC §5.2). With `/var/mnt/data` unmounted, the capsule would be written
+to the root filesystem instead, where the next factory reset erases it — the
+promise would look kept until the day it mattered.
+
+**Fix:** `findmnt /var/mnt/data`, then `luke doctor`.
+
+## LUKE-E061 — the setup password has not been changed yet
+
+`luke setup account` carries the password you chose at first login over to your
+new account, so you never type a third one. Before that forced change, the
+password on the machine is still the **setup token** — the code printed on the
+console banner. Copying it would make your administrator account's password a
+string that was displayed on a screen in a room.
+
+**Fix:** sign in as `luke` once (console, ssh, or the wizard), choose a
+password, then run setup again.
+
+## LUKE-E062 — the installer account has no password to carry over
+
+`luke`'s shadow entry holds `!`, `*`, or nothing rather than a hash, so there
+is nothing to transfer. Creating the account anyway would give it no way in,
+and then retire the account that had one.
+
+**Fix:** `sudo passwd luke`, then re-run.
+
+## LUKE-E063 — that cannot be a NAS name
+
+One DNS label: 1–63 characters, lowercase letters, digits and hyphens, starting
+and ending with a letter or digit. Not a full domain name.
+
+## LUKE-E064 — could not set the hostname
+
+`hostnamectl` refused. The name is already recorded in the capsule, so it is
+applied on the next boot by `lukenasos-identity.service` either way.
+
+**Fix:** `luke doctor`; `systemctl status systemd-hostnamed`.
+
+## LUKE-E065 — that cannot be a user name
+
+1–32 characters, starting with a lowercase letter, then lowercase letters,
+digits, hyphen or underscore. Lowercase only, deliberately: Samba lowercases
+user names, and a mixed-case account would surface as a share rejecting the
+password you just typed. `luke` itself is refused — that account is being
+retired.
+
+## LUKE-E066 — that user name is taken
+
+**Fix:** `luke setup account --name <another name>`.
+
+## LUKE-E067 — there is no installer account to carry a password over from
+
+`luke` does not exist, so this machine was not installed by
+`installer/luke.ks` and there is no password to transfer.
+
+**Fix:** create the account directly: `useradd -m -G wheel <name>`.
+
+## LUKE-E068 — could not create the account
+
+`useradd` or `chpasswd` failed. The half-made account was removed and `luke`
+was left alone: this machine is still reachable the way it was a moment ago.
+
+**Fix:** `luke doctor`, then re-run.
+
+## LUKE-E069 — that cannot be a share name
+
+1–32 characters, letters, digits, hyphen or underscore. `global`, `homes`,
+`printers` and `print$` mean something else inside a Samba configuration.
+
+## LUKE-E070 — no such user for this share
+
+A share names who may open it, and that account must exist **and** be one this
+NAS set up — only accounts in the identity capsule survive a factory reset, and
+a share whose owner does not come back is a share nobody can open.
+
+**Fix:** `luke setup account --name <user>` first.
+
+## LUKE-E071 — no password arrived on stdin
+
+`--password-stdin` was given and nothing was piped in. There is no `--password`
+flag on purpose: it would land in your shell history, in `ps`, and in the
+journal.
+
+**Fix:** `printf '%s' "$password" | luke setup share --name <share> --user <user> --password-stdin`
+
+## LUKE-E072 — could not create the Samba credential
+
+Samba passwords are NT hashes and Unix passwords are not; neither can be
+derived from the other, so the Samba container image turns your password into
+the hash Samba stores. This error means that image could not run — usually
+because it has not been pulled yet and this machine has no network.
+
+**Fix:** `luke doctor` (network), then re-run. Nothing was half-made: no share
+was recorded and port 445 is still shut.
+
+## LUKE-E073 — the share was created but Samba did not start
+
+The share is recorded in the capsule; the container did not come up.
+
+**Fix:** `systemctl status samba.service`, then `luke doctor`.

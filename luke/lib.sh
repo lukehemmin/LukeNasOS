@@ -28,6 +28,27 @@ LUKE_SETUP_TOKEN="$LUKE_STATE_DIR/setup-token"
 LUKE_EXPECTED="$LUKE_STATE_DIR/expected-digest"
 LUKE_ROLLBACK_CAUSE="$LUKE_STATE_DIR/last-rollback.json"
 
+# The identity capsule (SPEC §5.2). Everything the user tells this machine
+# about who they are — the administrator account, the NAS's name, the shares —
+# is recorded here and only then applied to /etc.
+#
+# The order matters and is the whole point. /etc does not survive a factory
+# reset; /data does, and it moves with the disk. SPEC §5.2 promises that users,
+# UID/GID and share definitions survive a reset that clears /etc, and those two
+# sentences only fit together if something writes them back afterwards.
+# lukenasos-identity.service is that something; this directory is what it reads.
+# Without it, "your data survives" would mean the bytes are still on the disk
+# and nobody can reach them — the broken promise SPEC §5.2 names by name.
+#
+# It holds password hashes, so it is 0700 and stays that way.
+# shellcheck disable=SC2034
+LUKE_CAPSULE="${LUKE_CAPSULE:-/var/mnt/data/.lukenasos}"
+# The account the installer creates. Retired by `luke setup account` once a
+# real one exists; never removed, because a machine with no way in is worse
+# than a machine with a locked door.
+# shellcheck disable=SC2034
+LUKE_DEFAULT_USER="${LUKE_DEFAULT_USER:-luke}"
+
 # Consumed by the sourcing verbs, not here.
 # shellcheck disable=SC2034
 EXIT_OK=0

@@ -54,7 +54,12 @@ RUN systemctl mask systemd-remount-fs.service
 # `nft -f /etc/sysconfig/nftables.conf`, so /etc holds one include line and
 # the policy itself stays in /usr where the image owns it.
 COPY config/network/lukenasos.nft /usr/share/lukenasos/lukenasos.nft
-RUN printf '# LukeNasOS: the policy lives in the image (see SPEC §9).\n# Local additions can go below the include.\ninclude "/usr/share/lukenasos/lukenasos.nft"\n' \
+#
+# The second include is how a port opens without editing the policy: `luke setup
+# share` drops a rule file in that directory when the first share exists and
+# removes it with the last (SPEC §9). A wildcard include matching nothing is not
+# an error in nft, so a fresh install needs no file there.
+RUN printf '# LukeNasOS: the policy lives in the image (see SPEC §9).\n# Local additions can go below the include.\ninclude "/usr/share/lukenasos/lukenasos.nft"\ninclude "/etc/lukenasos/nftables.d/*.nft"\n' \
         > /etc/sysconfig/nftables.conf
 
 # The banner is the only place a fresh machine shows its setup address and
@@ -92,6 +97,7 @@ RUN systemctl enable \
         greenboot-success.target \
         lukenasos-boot-check.service \
         lukenasos-banner.service \
+        lukenasos-identity.service \
         lukenasos-scrub.timer \
         lukenasos-space-watchdog.timer \
         lukenasos-balance.timer \
@@ -103,8 +109,13 @@ RUN systemctl enable \
 # @data mounts at /var/mnt/data (the bootc-sanctioned place for machine-local
 # mounts); /data is the human-facing symlink. The share directory and the
 # luke state directory are created by tmpfiles on first boot.
+#
+# /var/mnt/data/share is the root the Samba container binds; each share the
+# wizard creates is a directory under it. The identity capsule beside it holds
+# password hashes, hence 0700 — see lib.sh's LUKE_CAPSULE note for why it is on
+# /data and not in /etc.
 RUN ln -s var/mnt/data /data
-RUN printf 'd /var/mnt 0755 root root -\nd /var/mnt/data 0755 root root -\nd /var/mnt/data/share 0770 root root -\nd /var/lib/lukenasos 0755 root root -\n' \
+RUN printf 'd /var/mnt 0755 root root -\nd /var/mnt/data 0755 root root -\nd /var/mnt/data/share 0770 root root -\nd /var/lib/lukenasos 0755 root root -\nd /etc/lukenasos/nftables.d 0755 root root -\n' \
         > /usr/lib/tmpfiles.d/lukenasos.conf
 
 # ── update identity ───────────────────────────────────────────────────────

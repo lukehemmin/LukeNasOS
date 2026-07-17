@@ -454,6 +454,7 @@ verify_static() {
             "$REPO_ROOT"/luke/luke "$REPO_ROOT"/luke/status \
             "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
             "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
+            "$REPO_ROOT"/luke/setup "$REPO_ROOT"/luke/identity-apply \
             "$REPO_ROOT"/luke/lib.sh \
             "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
             "$REPO_ROOT"/config/greenboot/red.d/*.sh \
@@ -465,6 +466,12 @@ verify_static() {
     # here; the alternative is finding out during a 10-minute QEMU install.
     "$REPO_ROOT/tests/pre-disk.sh"
     "$REPO_ROOT/tests/banner-setup.sh"
+
+    # The wizard's privileged API: the code between a browser form and useradd.
+    # It runs once, on someone's only machine, and its worst failures — handing
+    # the new administrator the setup token as a password, retiring the account
+    # that still works — are not ones they can undo from the couch.
+    "$REPO_ROOT/tests/setup-verbs.sh"
 
     # The firewall policy is loaded by nftables.service at boot; a typo means
     # a machine that boots with no filter at all, which is exactly the hole
@@ -486,6 +493,21 @@ verify_static() {
     if grep -rEn 'BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}' \
         "$REPO_ROOT/Containerfile" "$REPO_ROOT/config" "$REPO_ROOT/luke"; then
         echo "CREDENTIAL MATERIAL FOUND in the image recipe" >&2
+        return 1
+    fi
+    # The above greps for key material and misses the shape that actually got
+    # shipped: samba.container carried ACCOUNT_luke=changeme-on-first-login for
+    # the whole life of the project — one password, identical on every install,
+    # for an account the wizard retires. It was harmless only because SPEC §9
+    # keeps 445 shut, and `luke setup share` now opens it.
+    #
+    # So the rule is a property, not a pattern: Samba accounts come from the
+    # identity capsule on /data, and the image defines none.
+    if grep -rEn '^(ACCOUNT|UID)_[a-z]' "$REPO_ROOT/config/containers"; then
+        echo "A SAMBA ACCOUNT IS DEFINED IN THE IMAGE — accounts belong to the" >&2
+        echo "identity capsule (SPEC §5.2), which is per-machine and survives a" >&2
+        echo "factory reset. An account baked here is the same password on every" >&2
+        echo "LukeNasOS install." >&2
         return 1
     fi
     echo "static checks passed"

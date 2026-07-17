@@ -107,12 +107,33 @@ jobs:
         # exists to close. Checked here rather than in `static` because
         # `nft -c` is not a parser — it talks to the kernel, so it needs
         # CAP_NET_ADMIN and it needs to read the file from inside the image.
+        #
+        # Checked through /etc/sysconfig/nftables.conf, which is the path
+        # nftables.service passes to `nft -f`, rather than through the policy
+        # file directly: the conf is where the includes live, and an include
+        # that cannot resolve fails the whole load — leaving the machine with
+        # no firewall for a reason the policy file alone would never show.
         run: |
           podman run --rm --cap-add NET_ADMIN --entrypoint sh lukenasos:ci -c \
-            'nft -c -f /usr/share/lukenasos/lukenasos.nft && echo "policy parses"'
-          # And the include that nftables.service actually reads must point at it.
-          podman run --rm --entrypoint sh lukenasos:ci -c \
-            'grep -q "/usr/share/lukenasos/lukenasos.nft" /etc/sysconfig/nftables.conf'
+            'nft -c -f /etc/sysconfig/nftables.conf && echo "policy parses, as loaded"'
+      - name: SMB opens for a share, and only through the policy
+        # `luke setup share` opens 445 by dropping a rule file into a directory
+        # the conf globs in (SPEC §9). Two ways that goes wrong and neither is
+        # visible without the kernel: a wildcard include matching nothing could
+        # error, and every fresh install would boot with no firewall; or the
+        # rule could fail to resolve against the table the first include
+        # defines, and the first share would open nothing.
+        run: |
+          podman run --rm --cap-add NET_ADMIN --entrypoint sh lukenasos:ci -c '
+            set -e
+            nft -c -f /etc/sysconfig/nftables.conf
+            echo "empty glob: fresh installs still load a policy"
+            mkdir -p /etc/lukenasos/nftables.d
+            printf "add rule inet lukenasos input tcp dport 445 accept\n" \
+              > /etc/lukenasos/nftables.d/10-shares.nft
+            nft -c -f /etc/sysconfig/nftables.conf
+            echo "share rule: resolves against the table the policy defines"
+          '
       - name: greenboot's boot_counter snippet reaches bootupd's configs.d
         # The 42 → 44 bump nearly disarmed the headline feature in silence.
         #

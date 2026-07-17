@@ -1,0 +1,556 @@
+#!/usr/bin/env bash
+# luke setup — the privileged API behind the first-boot wizard.
+#
+# The wizard is a Cockpit plugin: browser JavaScript. It never runs useradd,
+# never touches nft, never writes a quadlet. It calls these subcommands through
+# cockpit.spawn(superuser: "require") and reads their --json. One audited
+# privileged surface, and the console and ssh front ends come free because every
+# verb here already speaks English.
+#
+# Contract:
+#   - What the user decides is written to the identity capsule on /data BEFORE
+#     it is applied to /etc, because /etc does not survive a factory reset and
+#     /data does (SPEC §5.2, and see lib.sh's LUKE_CAPSULE note).
+#   - Every subcommand is re-runnable, and half-made state is worse than none:
+#     a failed `setup account` removes the user it was building, and the
+#     installer's account is retired only once the new one is proven usable.
+#   - Exit 77 when there is nothing to do, like every other verb.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+# Seams: unset on a real machine, where the defaults are the real thing.
+# tests/setup-verbs.sh stands a whole machine up in a temp dir with these.
+SHADOW="${LUKE_SHADOW:-/etc/shadow}"
+QUADLET="${LUKE_QUADLET:-/usr/share/containers/systemd/samba.container}"
+NFT_DIR="${LUKE_NFT_DIR:-/etc/lukenasos/nftables.d}"
+SHARE_ROOT="${LUKE_SHARE_ROOT:-/var/mnt/data/share}"
+
+usage() {
+    cat <<'EOF'
+luke setup — first-boot configuration (the wizard's privileged API)
+
+Usage: luke setup <what> [options]
+
+  status                       What is configured and what is not
+  hostname --name <name>       Name this NAS
+  account  --name <user>       Create the administrator account, carrying over
+                               the password already chosen, and retire the
+                               installer's default account
+  share    --name <share> --user <user> --password-stdin
+                               Create the first file share and open SMB for it
+
+Every subcommand accepts --json. Exit codes: 0 ok, 1 error, 2 usage,
+77 nothing to do.
+EOF
+}
+
+# ── validation ────────────────────────────────────────────────────────────
+# Each of these is also a first-contact error message: the wizard shows what
+# comes back from here inline under the field, so "invalid" is never enough.
+
+valid_username() {
+    # useradd's own rule (NAME_REGEX), minus the trailing '$' Samba machine
+    # accounts use. Lowercase only: mixed-case Unix names and Samba's
+    # lowercasing disagree, and the disagreement surfaces as a share that
+    # rejects the password the user just typed.
+    printf '%s' "$1" | grep -qE '^[a-z_][a-z0-9_-]{0,31}$'
+}
+
+valid_hostname() {
+    # One RFC 1123 label. Not a FQDN: this name is what the LAN calls the box.
+    printf '%s' "$1" | grep -qE '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+}
+
+valid_sharename() {
+    printf '%s' "$1" | grep -qE '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$'
+}
+
+# ── the capsule ───────────────────────────────────────────────────────────
+
+capsule_init() {
+    # /data must be mounted. If it is not, writing here would put the capsule
+    # on the root filesystem, where a factory reset erases it — which is the
+    # exact failure this file exists to prevent, made invisible.
+    mountpoint -q "$(dirname "$LUKE_CAPSULE")" 2>/dev/null || \
+        [ -n "${LUKE_CAPSULE_UNSAFE:-}" ] || \
+        die "$EXIT_ERROR" LUKE-E060 \
+            "the data filesystem is not mounted" \
+            "$(dirname "$LUKE_CAPSULE") is not a mount point, so anything recorded there would be erased by the next factory reset" \
+            "luke doctor"
+    mkdir -p "$LUKE_CAPSULE/accounts" "$LUKE_CAPSULE/shares"
+    chmod 0700 "$LUKE_CAPSULE"
+}
+
+capsule_write() {
+    # capsule_write PATH — stdin to PATH, 0600, atomically, flushed. These are
+    # password hashes on the filesystem whose survival is the product's promise;
+    # a record that lives only in the page cache dies with the power.
+    local out="$1" tmp
+    tmp="$out.$$"
+    cat > "$tmp"
+    chmod 0600 "$tmp"
+    mv -f "$tmp" "$out"
+    persist "$out"
+}
+
+capsule_admin() {
+    # The administrator the capsule knows about, if any. One line, name only.
+    local f
+    for f in "$LUKE_CAPSULE"/accounts/*.json; do
+        [ -e "$f" ] || continue
+        jq -r '.name' "$f"
+        return 0
+    done
+    return 1
+}
+
+capsule_shares() {
+    local f
+    for f in "$LUKE_CAPSULE"/shares/*.json; do
+        [ -e "$f" ] || continue
+        jq -r '.name' "$f"
+    done
+}
+
+# ── machine facts ─────────────────────────────────────────────────────────
+
+# The administrator on THIS machine, derived rather than remembered: a wheel
+# member with a real (>=1000) uid that is not the installer's account. The
+# design wants the wizard to skip step 1 when an interactive install already
+# made one, and that is a question about the machine, not about our bookkeeping.
+system_admin() {
+    local u uid
+    while IFS=: read -r u _ uid _; do
+        [ "$uid" -ge 1000 ] 2>/dev/null || continue
+        [ "$u" = "$LUKE_DEFAULT_USER" ] && continue
+        id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx wheel || continue
+        printf '%s\n' "$u"
+        return 0
+    done < <(getent passwd)
+    return 1
+}
+
+shadow_field() {
+    # shadow_field USER N
+    awk -F: -v u="$2" -v n="$3" '$1==u {print $n}' "$1" 2>/dev/null
+}
+
+samba_image() {
+    # The quadlet decides which image serves the shares. A second copy of that
+    # string here would drift the day someone pins it by digest.
+    awk -F= '/^Image=/{print $2; exit}' "$QUADLET" 2>/dev/null
+}
+
+# ── rendering: capsule → the running machine ─────────────────────────────
+
+render_samba_env() {
+    # samba.container reads this with EnvironmentFile=. It is generated, never
+    # edited: accounts/*.json and shares/*.json are the truth, and this is
+    # rewritten from them on every change and every boot.
+    #
+    # Note the values need no quoting, unlike the Environment= lines this
+    # replaced: quadlet splits Environment= on whitespace, but EnvironmentFile
+    # is parsed by systemd, which takes the rest of the line.
+    local f u h uid s vu
+    {
+        echo "# Generated by luke setup — edit the capsule, not this file."
+        echo "SAMBA_CONF_LOG_LEVEL=1"
+        for f in "$LUKE_CAPSULE"/accounts/*.json; do
+            [ -e "$f" ] || continue
+            h=$(jq -r '.samba_hash // empty' "$f")
+            [ -n "$h" ] || continue
+            u=$(jq -r '.name' "$f")
+            uid=$(jq -r '.uid' "$f")
+            printf 'ACCOUNT_%s=%s\n' "$u" "$h"
+            printf 'UID_%s=%s\n' "$u" "$uid"
+        done
+        for f in "$LUKE_CAPSULE"/shares/*.json; do
+            [ -e "$f" ] || continue
+            s=$(jq -r '.name' "$f")
+            vu=$(jq -r '.valid_users | join(", ")' "$f")
+            printf 'SAMBA_VOLUME_CONFIG_%s=[%s]; path=/share/%s; valid users = %s; guest ok = no; read only = no; browseable = yes\n' \
+                "$s" "$s" "$s" "$vu"
+        done
+    } | capsule_write "$LUKE_CAPSULE/samba.env"
+}
+
+render_share_firewall() {
+    # SMB is open because a share exists, not because the OS booted (SPEC §9).
+    # The rule lands in a file nftables.conf globs in, so it survives a reload
+    # of the whole policy instead of being a live rule someone's `nft flush`
+    # quietly removes.
+    mkdir -p "$NFT_DIR"
+    if [ -n "$(capsule_shares)" ]; then
+        cat > "$NFT_DIR/10-shares.nft" <<'EOF'
+# Written by `luke setup share`. SMB is open because a share exists; the last
+# share to go closes it again. See SPEC §9.
+add rule inet lukenasos input tcp dport 445 accept comment "smb: a share exists"
+EOF
+    else
+        rm -f "$NFT_DIR/10-shares.nft"
+    fi
+    systemctl reload-or-restart nftables.service >/dev/null 2>&1 || true
+}
+
+# ── luke setup status ─────────────────────────────────────────────────────
+
+do_status() {
+    local admin hostname_set shares_json admin_json
+    local -a sh_list
+    admin=$(system_admin || true)
+    hostname_set=$(cat "$LUKE_CAPSULE/hostname" 2>/dev/null || true)
+    mapfile -t sh_list < <(capsule_shares)
+    shares_json=$(printf '%s\n' "${sh_list[@]+"${sh_list[@]}"}" | jq -Rn '[inputs | select(length > 0)]')
+
+    if [ "$JSON" = 1 ]; then
+        admin_json=$( [ -n "$admin" ] && json_escape "$admin" || echo null )
+        jq -n --argjson user "$admin_json" \
+              --arg hn "$hostname_set" \
+              --argjson shares "$shares_json" \
+            '{
+               account:  {done: ($user != null), user: $user},
+               hostname: {done: ($hn != ""), value: (if $hn == "" then null else $hn end)},
+               share:    {done: ($shares | length > 0), shares: $shares},
+               complete: (($user != null) and ($hn != "") and ($shares | length > 0))
+             }'
+    else
+        echo "Administrator: ${admin:-not created yet}"
+        echo "NAS name:      ${hostname_set:-not chosen yet}"
+        if [ "${#sh_list[@]}" = 0 ]; then
+            echo "Shares:        none yet (SMB is closed until the first one)"
+        else
+            echo "Shares:        ${sh_list[*]}"
+        fi
+    fi
+}
+
+# ── luke setup hostname ───────────────────────────────────────────────────
+
+do_hostname() {
+    local name="$1"
+    [ -n "$name" ] || die "$EXIT_USAGE" LUKE-E002 "luke setup hostname needs a name" \
+        "no --name was given" "luke setup hostname --name my-nas"
+    valid_hostname "$name" || die "$EXIT_ERROR" LUKE-E063 \
+        "'$name' cannot be a NAS name" \
+        "use 1-63 characters: lowercase letters, digits and hyphens, starting and ending with a letter or digit" \
+        "luke setup hostname --name my-nas"
+
+    require_root "setup hostname"
+    capsule_init
+
+    # The capsule is the question, not /etc/hostname: a name recorded but not
+    # yet applied (set from a console before /data mounted, restored after a
+    # reset) is the identity unit's job to converge, not a reason to redo this.
+    if [ "$(cat "$LUKE_CAPSULE/hostname" 2>/dev/null || true)" = "$name" ]; then
+        if [ "$JSON" = 1 ]; then
+            jq -n --arg n "$name" '{result: "current", hostname: $n}'
+        else
+            echo "Already named $name."
+        fi
+        exit "$EXIT_NOTHING"
+    fi
+
+    # Capsule first: a hostname applied but not recorded is one a factory reset
+    # silently forgets.
+    printf '%s\n' "$name" | capsule_write "$LUKE_CAPSULE/hostname"
+    hostnamectl set-hostname "$name" || die "$EXIT_ERROR" LUKE-E064 \
+        "could not set the hostname" \
+        "hostnamectl refused; the name is recorded and will be applied on the next boot" \
+        "luke doctor"
+
+    event_log setup-hostname "$(jq -cn --arg n "$name" '{hostname: $n}')"
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg n "$name" '{result: "set", hostname: $n}'
+    else
+        echo "This NAS is now called $name."
+    fi
+}
+
+# ── luke setup account ────────────────────────────────────────────────────
+
+do_account() {
+    local name="$1" existing hash lastchg uid gid home default_home keys
+
+    [ -n "$name" ] || die "$EXIT_USAGE" LUKE-E002 "luke setup account needs a name" \
+        "no --name was given" "luke setup account --name sangho"
+    valid_username "$name" || die "$EXIT_ERROR" LUKE-E065 \
+        "'$name' cannot be a user name" \
+        "use 1-32 characters: start with a lowercase letter, then lowercase letters, digits, hyphen or underscore" \
+        "luke setup account --name sangho"
+
+    require_root "setup account"
+
+    # Already done — the wizard skips step 1 on a machine an interactive
+    # install already gave an administrator.
+    if existing=$(system_admin); then
+        if [ "$JSON" = 1 ]; then
+            jq -n --arg u "$existing" '{result: "current", user: $u}'
+        else
+            echo "$existing is already the administrator here."
+        fi
+        exit "$EXIT_NOTHING"
+    fi
+
+    [ "$name" = "$LUKE_DEFAULT_USER" ] && die "$EXIT_ERROR" LUKE-E065 \
+        "'$name' is the installer's own account" \
+        "that account is being retired; the new one needs a different name" \
+        "luke setup account --name sangho"
+    getent passwd "$name" >/dev/null 2>&1 && die "$EXIT_ERROR" LUKE-E066 \
+        "the name '$name' is taken" \
+        "a user called '$name' already exists on this machine" \
+        "luke setup account --name <another name>"
+
+    getent passwd "$LUKE_DEFAULT_USER" >/dev/null 2>&1 || die "$EXIT_ERROR" LUKE-E067 \
+        "there is no installer account to carry a password over from" \
+        "'$LUKE_DEFAULT_USER' does not exist, so this machine was not set up by installer/luke.ks" \
+        "create the account yourself: useradd -m -G wheel $name"
+
+    # The whole design of step 1 is that the user types no password: the one
+    # they chose at the forced change follows them to the new account. If that
+    # change has not happened, the hash on disk is still the setup token — and
+    # copying it would hand the new administrator a password printed on a
+    # screen in the room. shadow's third field is the last-change day; `chage
+    # -d 0` leaves it 0, and PAM rewrites it on the change.
+    lastchg=$(shadow_field "$SHADOW" "$LUKE_DEFAULT_USER" 3)
+    [ "$lastchg" = "0" ] && die "$EXIT_ERROR" LUKE-E061 \
+        "the setup password has not been changed yet" \
+        "'$LUKE_DEFAULT_USER' still has the password from the setup token, and that token is not a secret to carry over" \
+        "sign in as $LUKE_DEFAULT_USER once and choose a password, then try again"
+
+    hash=$(shadow_field "$SHADOW" "$LUKE_DEFAULT_USER" 2)
+    case "$hash" in
+        '$'*) ;;
+        *) die "$EXIT_ERROR" LUKE-E062 \
+            "'$LUKE_DEFAULT_USER' has no password to carry over" \
+            "its shadow entry holds '${hash:-nothing}' rather than a password hash, so the new account would have no way in" \
+            "set one with: passwd $LUKE_DEFAULT_USER" ;;
+    esac
+
+    capsule_init
+
+    useradd --create-home --groups wheel --shell /bin/bash \
+        --comment "LukeNasOS administrator" "$name" \
+        || die "$EXIT_ERROR" LUKE-E068 "could not create '$name'" \
+            "useradd failed" "luke doctor"
+
+    # From here on, anything that fails takes the half-made account with it.
+    # A machine with a user who cannot log in and an installer account that was
+    # already retired is a machine nobody can reach.
+    undo_account() { userdel --remove "$name" >/dev/null 2>&1 || true; }
+
+    # chpasswd -e, not `usermod -p`: the hash never appears in the process
+    # table this way.
+    printf '%s:%s\n' "$name" "$hash" | chpasswd -e \
+        || { undo_account; die "$EXIT_ERROR" LUKE-E068 \
+            "could not carry the password over to '$name'" \
+            "chpasswd refused the hash copied from $LUKE_DEFAULT_USER" "luke doctor"; }
+
+    # Not expired, and not due for a change: the user already chose this
+    # password minutes ago. Inheriting `chage -d 0` would ask them to change it
+    # again on their very first login as themselves.
+    chage -d "$(date -u +%Y-%m-%d)" "$name" >/dev/null 2>&1 || true
+
+    uid=$(id -u "$name"); gid=$(id -g "$name")
+    home=$(getent passwd "$name" | cut -d: -f6)
+    default_home=$(getent passwd "$LUKE_DEFAULT_USER" | cut -d: -f6)
+
+    # Whoever installed this machine may have reached it over ssh with a key,
+    # and locking the account they used without bringing the key along would
+    # lock them out of the box they are standing in front of.
+    if [ -s "$default_home/.ssh/authorized_keys" ]; then
+        install -d -m 0700 -o "$name" -g "$name" "$home/.ssh"
+        install -m 0600 -o "$name" -g "$name" \
+            "$default_home/.ssh/authorized_keys" "$home/.ssh/authorized_keys"
+    fi
+
+    # Prove it before betting the machine on it: 'P' is a usable password.
+    [ "$(passwd -S "$name" 2>/dev/null | awk '{print $2}')" = "P" ] \
+        || { undo_account; die "$EXIT_ERROR" LUKE-E068 \
+            "'$name' was created without a usable password" \
+            "passwd -S does not report a usable password, so retiring $LUKE_DEFAULT_USER now would lock this machine" \
+            "luke doctor"; }
+
+    keys='[]'
+    [ -s "$home/.ssh/authorized_keys" ] \
+        && keys=$(jq -Rn '[inputs | select(length > 0)]' < "$home/.ssh/authorized_keys")
+
+    jq -n --arg name "$name" --argjson uid "$uid" --argjson gid "$gid" \
+          --arg hash "$hash" --arg shell /bin/bash --arg home "$home" \
+          --argjson keys "$keys" \
+        '{name: $name, uid: $uid, gid: $gid, hash: $hash, shell: $shell,
+          home: $home, groups: ["wheel"], samba_hash: null,
+          authorized_keys: $keys}' \
+        | capsule_write "$LUKE_CAPSULE/accounts/$name.json"
+
+    # Last, and only now: the new account is proven, so the old one can go.
+    # Locked and expired, not deleted — its home may hold something, and a
+    # deleted uid is a hole in the story `luke status --events` tells.
+    usermod --lock --expiredate 1 "$LUKE_DEFAULT_USER" >/dev/null 2>&1 || true
+
+    event_log setup-account "$(jq -cn --arg u "$name" --argjson uid "$uid" \
+        '{user: $u, uid: $uid, retired: "luke"}')"
+
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg u "$name" --argjson uid "$uid" \
+            '{result: "created", user: $u, uid: $uid, retired: "luke"}'
+    else
+        echo "$name is the administrator now, with the password you already chose."
+        echo "The installer's '$LUKE_DEFAULT_USER' account is retired."
+    fi
+}
+
+# ── luke setup share ──────────────────────────────────────────────────────
+
+do_share() {
+    local name="$1" user="$2" pw_stdin="$3" password image hash acct
+
+    [ -n "$name" ] || die "$EXIT_USAGE" LUKE-E002 "luke setup share needs a name" \
+        "no --name was given" "luke setup share --name family --user sangho --password-stdin"
+    valid_sharename "$name" || die "$EXIT_ERROR" LUKE-E069 \
+        "'$name' cannot be a share name" \
+        "use 1-32 characters: letters, digits, hyphen or underscore" \
+        "luke setup share --name family --user $user --password-stdin"
+    case "$name" in
+        global|homes|printers|'print$')
+            die "$EXIT_ERROR" LUKE-E069 "'$name' is reserved by Samba" \
+                "that name means something else in a Samba configuration file" \
+                "luke setup share --name family --user $user --password-stdin" ;;
+    esac
+    [ -n "$user" ] || die "$EXIT_USAGE" LUKE-E002 "luke setup share needs a user" \
+        "no --user was given; a share with no one allowed on it is not a share" \
+        "luke setup share --name $name --user sangho --password-stdin"
+
+    require_root "setup share"
+    getent passwd "$user" >/dev/null 2>&1 || die "$EXIT_ERROR" LUKE-E070 \
+        "there is no user called '$user'" \
+        "a share names who may open it, and that account has to exist first" \
+        "luke setup account --name $user"
+
+    # --password-stdin is the only way in, deliberately. A --password flag lands
+    # in the shell history, in `ps`, and in the journal.
+    [ "$pw_stdin" = 1 ] || die "$EXIT_USAGE" LUKE-E002 \
+        "luke setup share needs --password-stdin" \
+        "the share password is read from stdin; there is no --password flag, because it would land in shell history and in ps" \
+        "printf '%s' \"\$password\" | luke setup share --name $name --user $user --password-stdin"
+
+    IFS= read -r password || true
+    [ -n "$password" ] || die "$EXIT_ERROR" LUKE-E071 \
+        "no password arrived on stdin" \
+        "--password-stdin was given but nothing was piped in" \
+        "printf '%s' \"\$password\" | luke setup share --name $name --user $user --password-stdin"
+
+    capsule_init
+    [ -f "$LUKE_CAPSULE/accounts/$user.json" ] || die "$EXIT_ERROR" LUKE-E070 \
+        "'$user' is not an account this NAS set up" \
+        "only accounts in the identity capsule can own a share, because only those survive a factory reset" \
+        "luke setup account --name $user"
+
+    if [ -f "$LUKE_CAPSULE/shares/$name.json" ]; then
+        if [ "$JSON" = 1 ]; then
+            jq -n --arg s "$name" '{result: "current", share: $s}'
+        else
+            echo "The share '$name' already exists."
+        fi
+        exit "$EXIT_NOTHING"
+    fi
+
+    image=$(samba_image)
+    [ -n "$image" ] || die "$EXIT_ERROR" LUKE-E072 \
+        "cannot tell which Samba image to use" \
+        "no Image= line in $QUADLET" "luke doctor"
+
+    # Samba passwords are NT hashes; Unix passwords are not. Nothing can derive
+    # one from the other, which is why this is the one place in setup that asks
+    # the user to type a password they already chose. The image's own
+    # create-hash.sh turns it into the smbpasswd line ACCOUNT_<user> takes, so
+    # what lands on disk is a hash rather than the plaintext of an account that
+    # also opens ssh and Cockpit.
+    #
+    # On a fresh machine this is where the container image gets pulled (the
+    # quadlet has had nothing to serve until now), so it can take minutes.
+    [ "$JSON" = 1 ] || echo "Preparing the share (this pulls the Samba image the first time)..."
+    hash=$(printf '%s\n%s\n%s\n' "$user" "$password" "$password" \
+        | podman run --rm -i --entrypoint create-hash.sh "$image" 2>/dev/null) \
+        || hash=""
+    case "$hash" in
+        "$user":*) ;;
+        *) die "$EXIT_ERROR" LUKE-E072 \
+            "could not create the Samba credential" \
+            "the $image container did not return a password hash; if this machine has no network yet, the image cannot be pulled" \
+            "luke doctor" ;;
+    esac
+
+    # Capsule first, then the machine. Both files are written before anything
+    # starts, so a failure here leaves no share half-made.
+    #
+    # The account JSON is read into a variable rather than a temp file on
+    # purpose: jq cannot read and write the same path, and a temp file wants a
+    # trap, and an EXIT trap that names a `local` is the bug that killed the
+    # lifecycle run with "err: unbound variable" — by the time the trap fires
+    # the function's scope is gone.
+    acct=$(jq --arg h "$hash" '.samba_hash = $h' "$LUKE_CAPSULE/accounts/$user.json")
+    printf '%s\n' "$acct" | capsule_write "$LUKE_CAPSULE/accounts/$user.json"
+
+    jq -n --arg n "$name" --arg p "$SHARE_ROOT/$name" --arg u "$user" \
+        '{name: $n, path: $p, valid_users: [$u]}' \
+        | capsule_write "$LUKE_CAPSULE/shares/$name.json"
+
+    install -d -m 0770 -o "$user" -g "$user" "$SHARE_ROOT/$name"
+    render_samba_env
+    render_share_firewall
+
+    # The quadlet generates samba.service from a file whose condition was false
+    # until samba.env existed a moment ago, so systemd has to re-read it.
+    systemctl daemon-reload
+    systemctl start samba.service >/dev/null 2>&1 || die "$EXIT_ERROR" LUKE-E073 \
+        "the share was created but Samba did not start" \
+        "$(systemctl is-active samba.service 2>/dev/null || true): see systemctl status samba.service" \
+        "luke doctor"
+
+    event_log setup-share "$(jq -cn --arg s "$name" --arg u "$user" \
+        '{share: $s, user: $u, port: 445}')"
+
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg s "$name" --arg u "$user" --arg p "$SHARE_ROOT/$name" \
+            '{result: "created", share: $s, user: $u, path: $p, port: 445}'
+    else
+        echo "The share '$name' is up, and SMB is open for it."
+        echo "Open it with the same password you sign in with, as '$user'."
+    fi
+}
+
+# ── dispatch ──────────────────────────────────────────────────────────────
+
+what="${1:-}"
+[ -n "$what" ] || { usage; exit 2; }
+shift
+
+parse_common_flags "$@"
+
+name="" user="" pw_stdin=0
+args=("${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+        --name) i=$((i+1)); name="${args[$i]:-}" ;;
+        --user) i=$((i+1)); user="${args[$i]:-}" ;;
+        --password-stdin) pw_stdin=1 ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '${args[$i]}'" \
+             "luke setup $what does not take that" "luke setup --help" ;;
+    esac
+    i=$((i+1))
+done
+
+case "$what" in
+    status)   do_status ;;
+    hostname) do_hostname "$name" ;;
+    account)  do_account "$name" ;;
+    share)    do_share "$name" "$user" "$pw_stdin" ;;
+    -h|--help|help) usage ;;
+    *)
+        echo "luke setup: unknown subcommand '$what'" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

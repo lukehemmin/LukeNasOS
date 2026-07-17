@@ -9,6 +9,11 @@ Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
 > beginning and absent for just as long — and the Fedora 44 / greenboot 0.16
 > migration with its EOL watch. The lifecycle E2E is green on F44, automatic
 > rollback included.
+>
+> **Also 2026-07-17**: the `luke setup` verbs and the identity capsule. Same pattern as
+> the nftables entry above — SPEC §5.2 had promised since the beginning that users and
+> share definitions survive a factory reset, and nothing had ever written them anywhere
+> that does.
 
 ## Next: the first-boot wizard
 
@@ -16,24 +21,41 @@ Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-2
 (eng + design reviewed, decisions recorded there). The repair wave was Phase 1 of it;
 this is the rest, and it is the first work that puts a screen in front of a user.
 
-- [ ] **`luke setup` verbs** — `account | share | hostname`, `--json` like every other
-  verb. The wizard is a Cockpit plugin and calls these via `cockpit.spawn(superuser)`;
-  it never runs `useradd`/`smbpasswd`/`nft` itself. One audited privileged surface,
-  three front ends (browser, console, ssh). `luke setup share` also opens port 445 and
-  creates the Samba credential — the firewall shipped closed on purpose.
-  (M → S, P1, blocks: everything below)
+- [x] **`luke setup` verbs** — shipped 2026-07-17: `status | hostname | account | share`,
+  all `--json`, plus the identity capsule and `lukenasos-identity.service`. Two things the
+  design had not seen: SPEC §5.2's capsule was normative and **entirely unimplemented**, so
+  an account in `/etc` alone would have been erased by the first factory reset; and Samba
+  is a container, so no Unix password can reach it (NT hashes are not derivable) — `share`
+  asks for the same password once via `--password-stdin` and stores the container's hash.
+
+- [ ] **Verify sshd really refuses password auth, or stop saying it does** — SPEC §9 says
+  "password authentication over ssh stays refused", but the console banner tells a new
+  owner to `ssh luke@<ip>` and type the setup token, which only works if it does not. One
+  of the two is wrong and nothing in the repo configures sshd, so the base image's default
+  decides. Same shape as the §9/§10 corrections in PR #3: check the image, not the
+  document. `podman run --rm --entrypoint sh <base> -c 'sshd -T | grep -i passwordauth'`
+  answers it in seconds — it needs podman, which the dev LXC does not have. (S → S, P1)
 
 - [ ] **First-boot wizard, step 1** — "Name your NAS and your account". No password
-  fields: the PAM forced-change at login already set one, and it transfers to the new
-  account. Then lock the installer default, render the sign-out interstitial, and only
-  then `loginctl terminate-user` — a silent disconnect reads as a crash on the user's
-  first action. Resumes at step 2 from a stamp file.
-  (L → M, P1, depends: luke setup verbs)
+  fields: the PAM forced-change at login already set one, and `luke setup account` now
+  transfers it. Then render the sign-out interstitial and only then `loginctl
+  terminate-user` — a silent disconnect reads as a crash on the user's first action.
+  (The verb retires `luke` itself; the wizard must not, and must not assume locking ends
+  the session — it does not.) Resumes at step 2 from a stamp file: `luke setup status`
+  derives what is *done*, but not where the user was.
+  (L → M, P1, depends: luke setup verbs ✅)
 
 - [ ] **Wizard steps 2–4** — network view (read-only: SPEC §9 keeps NetworkManager but
   the wizard mutating it is not designed yet), first share, and a Done screen that
   coaches the last mile (`\<ip>\<share>`, `smb://<ip>/<share>`, which credentials).
-  The arc ends in Finder, not in the browser. (L → M, P2)
+  The arc ends in Finder, not in the browser.
+  Step 3 gained a password field the design did not have — "confirm your password to turn
+  on file sharing" — because SMB stores NT hashes and nothing can derive one from the Unix
+  password (decided with the maintainer, 2026-07-17). It needs a show-password toggle: the
+  verb cannot check the password against the Unix one (no crypt(3) from shell on F44 —
+  Python dropped the module), so a typo there silently means a share that rejects the
+  password the Done screen tells them to use. Step 3 also pulls the Samba image on a fresh
+  machine, so its loading state is minutes, not a spinner. (L → M, P2)
 
 - [ ] **Health strip** — the product's thesis as a component: truthful first-boot states
   (`recovery seed: capturing…`, not `factory reset ready`), live poll of
