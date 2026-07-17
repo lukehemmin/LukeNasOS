@@ -8,16 +8,25 @@
 # there lying about it for the rest of the boot — the banner promises "this
 # screen updates itself", so it has to.
 #
-# $1 = interface, $2 = action. Fires for the events that can change what the
-# banner prints; anything else is ignored (dispatcher scripts run often).
+# This renders by CALLING THE SCRIPT, not by restarting the unit, and that is
+# the whole point of the file. `systemctl restart lukenasos-banner.service`
+# here took the machine down on a real boot: a single link coming up produces
+# several dispatcher events within a second or two, each restart SIGTERMed the
+# render started by the one before it, and systemd gave up with "Start request
+# repeated too quickly" — leaving the unit FAILED. greenboot's core-services
+# check watches that unit, sees `is-failed`, declares the boot red, and reboots.
+# An address arriving is not a reason to reboot a NAS.
 #
-# The banner unit is Type=oneshot RemainAfterExit=yes: `start` on an already
-# active unit is a no-op, so this restarts it. --no-block because a dispatcher
-# script must not wait on systemd.
+# The render is idempotent and writes its output atomically, so running it
+# here, concurrently with the unit's own run at boot, is safe: the last writer
+# wins and no getty ever sees a half-written banner.
+#
+# $1 = interface, $2 = action. Only the events that can change what the banner
+# prints; dispatcher scripts run often, and this one must stay cheap.
 
 case "${2:-}" in
     up|down|dhcp4-change|dhcp6-change|connectivity-change)
-        systemctl restart --no-block lukenasos-banner.service
+        exec /usr/libexec/lukenasos/banner
         ;;
 esac
 
