@@ -17,7 +17,9 @@
 # commits must be testable, and signature rejection is only reproducible
 # against a registry we control.
 #
-# Usage: demo-lifecycle.sh <registry-up|build-variants|install|all|verify-static|clean>
+# Usage: demo-lifecycle.sh <registry-up|build-variants|install|multidisk-guard|all|verify-static|clean>
+#
+# Env: FIRMWARE=uefi|bios  EXTRA_DISK=<qcow2>  QEMU_SERIAL=<qemu -serial spec>
 
 set -o errexit -o nounset -o pipefail
 
@@ -32,6 +34,15 @@ SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/
           -o ConnectTimeout=5 -i "$BUILD_DIR/test-key")
 NETINST_ISO="${NETINST_ISO:-$BUILD_DIR/fedora-netinst.iso}"
 QEMU_RAM="${QEMU_RAM:-4096}"
+# uefi | bios. The BIOS path is not a variant nobody uses: half the machines a
+# self-hoster resurrects boot that way, and the missing biosboot partition
+# stalled the installer there for the whole life of the project without a
+# single test noticing (observed on a real boot, 2026-07-16).
+FIRMWARE="${FIRMWARE:-uefi}"
+# A second empty disk, to prove the installer picks ONE target instead of
+# erasing everything it can see.
+EXTRA_DISK="${EXTRA_DISK:-}"
+QEMU_SERIAL="${QEMU_SERIAL:-mon:stdio}"
 
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
@@ -134,12 +145,16 @@ EOF
 }
 
 qemu_common_args() {
-    # shellcheck disable=SC2012
-    echo "-machine q35 -cpu max -m $QEMU_RAM -smp 2 \
-      -drive if=pflash,format=raw,readonly=on,file=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE*.fd 2>/dev/null | head -1) \
-      -drive file=$DISK,format=qcow2,if=virtio \
-      -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22 -device virtio-net-pci,netdev=n0 \
-      -display none -serial mon:stdio"
+    local args="-machine q35 -cpu max -m $QEMU_RAM -smp 2"
+    if [ "$FIRMWARE" = uefi ]; then
+        # shellcheck disable=SC2012
+        args="$args -drive if=pflash,format=raw,readonly=on,file=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE*.fd 2>/dev/null | head -1)"
+    fi
+    args="$args -drive file=$DISK,format=qcow2,if=virtio"
+    [ -n "$EXTRA_DISK" ] && args="$args -drive file=$EXTRA_DISK,format=qcow2,if=virtio"
+    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22 -device virtio-net-pci,netdev=n0"
+    args="$args -display none -serial $QEMU_SERIAL"
+    echo "$args"
     if [ -e /dev/kvm ]; then echo "-enable-kvm"; fi
 }
 
@@ -437,14 +452,52 @@ resume_from_4() {
     say "RESUME COMPLETE — phases 4-6 green"
 }
 
+multidisk_guard() {
+    # Two disks, no inst.luke.disk. Before this wave, `clearpart --all` took
+    # both. Now the installer must ASK — and while it asks, it must not have
+    # touched anything.
+    #
+    # The unit tests (tests/pre-disk.sh) prove the decision tree against a stub
+    # lsblk in a second. This proves the other half: that real lsblk, in the
+    # real anaconda environment, produces what those stubs claim.
+    say "multi-disk guard: the installer must ask, not erase"
+    local log="$BUILD_DIR/multidisk-serial.log"
+    EXTRA_DISK="$BUILD_DIR/lukenasos-extra.qcow2"
+    rm -f "$EXTRA_DISK" "$log"
+    qemu-img create -f qcow2 "$EXTRA_DISK" "$DISK_SIZE" >/dev/null
+
+    # The menu blocks on console input that never comes, so the timeout IS the
+    # pass condition: an installer that finishes here erased something.
+    QEMU_SERIAL="file:$log" EXTRA_DISK="$EXTRA_DISK" INSTALL_TIMEOUT="${GUARD_TIMEOUT:-8m}" \
+        install_vm || true
+
+    grep -q "which disk should become this NAS" "$log" || {
+        echo "FAIL: the installer never presented the disk menu." >&2
+        echo "Last 40 lines of serial:" >&2; tail -40 "$log" >&2
+        return 1
+    }
+    say "the menu appeared; now: did it touch either disk?"
+    local d
+    for d in "$DISK" "$EXTRA_DISK"; do
+        # A GPT disk label starts with 'EFI PART' at LBA 1. Neither disk should
+        # have one: nothing was confirmed, so nothing may have been written.
+        if qemu-io -f qcow2 -c "read -v 512 16" "$d" 2>/dev/null | grep -qi "EFI PART"; then
+            echo "FAIL: $d was partitioned while the installer was still asking" >&2
+            return 1
+        fi
+    done
+    say "MULTI-DISK GUARD PASSED — asked first, wrote nothing"
+}
+
 case "${1:-all}" in
     registry-up)    registry_up ;;
     build-variants) registry_up; build_variants ;;
     install)        make_oemdrv; install_vm ;;
+    multidisk-guard) registry_up; make_oemdrv; multidisk_guard ;;
     verify-static)  verify_static ;;
     clean)          clean ;;
     all)            all ;;
     resume-from-2)  resume_from_2 ;;
     resume-from-4)  resume_from_4 ;;
-    *) echo "usage: $0 <registry-up|build-variants|install|all|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
+    *) echo "usage: $0 <registry-up|build-variants|install|multidisk-guard|all|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
 esac
