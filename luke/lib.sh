@@ -18,6 +18,11 @@ LUKE_STATE_DIR="${LUKE_STATE_DIR:-/var/lib/lukenasos}"
 LUKE_CONF="${LUKE_CONF:-/etc/lukenasos/luke.conf}"
 LUKE_EVENTS="$LUKE_STATE_DIR/events.jsonl"
 LUKE_BLOCKLIST="$LUKE_STATE_DIR/blocked-digests"
+# The per-install setup token (installer/luke.ks %post writes it). Printed on
+# the console banner until the forced password change spends it; console
+# access is what proves ownership of a fresh machine.
+# shellcheck disable=SC2034
+LUKE_SETUP_TOKEN="$LUKE_STATE_DIR/setup-token"
 # Consumed by the sourcing verbs.
 # shellcheck disable=SC2034
 LUKE_EXPECTED="$LUKE_STATE_DIR/expected-digest"

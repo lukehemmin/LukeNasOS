@@ -1,0 +1,59 @@
+#!/usr/sbin/nft -f
+# LukeNasOS firewall policy.
+#
+# SPEC §9 has always said "nftables is required before any network-facing
+# service ships". It shipped anyway: the image enables sshd, so the machine
+# has been answering on port 22 with no filter at all. This file is that
+# missing line, written before the setup wizard adds a second open port.
+#
+# The policy is deliberately small. A NAS is a box you reach FROM your LAN,
+# so the interesting direction is inbound: drop by default, name every
+# exception, and let the machine talk out freely (updates, image pulls, NTP).
+#
+# Ports:
+#   22   ssh — the appliance's recovery path when the browser cannot help.
+#             Enabled by default and by design; see SPEC §9.
+#   9090 the setup wizard / dashboard (Cockpit). The whole product story after
+#        install happens here.
+#
+# NOT open, deliberately:
+#   445/139 SMB. `luke setup share` opens 445 when the first share is created
+#           and closes it with the last one. A file-sharing port that opens
+#           because the OS was installed, rather than because a share exists,
+#           is a port nobody asked for.
+
+flush ruleset
+
+table inet lukenasos {
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # Anything we started, and anything already talking to us.
+        ct state established,related accept
+        ct state invalid drop
+        iif lo accept
+
+        # ICMP is not optional: dropping it breaks path MTU discovery and
+        # makes a NAS that "works" but stalls on large transfers.
+        ip protocol icmp accept
+        ip6 nexthdr ipv6-icmp accept
+
+        tcp dport 22 accept comment "ssh: recovery path, SPEC section 9"
+        tcp dport 9090 accept comment "setup wizard and dashboard"
+
+        # Everything else is dropped by policy. Rejecting would be friendlier
+        # on a LAN, but this box is also the thing you expose to a router by
+        # mistake; silence is the safer default.
+    }
+
+    chain forward {
+        # Not a router.
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        # Updates, image pulls, NTP, DNS. The machine's own traffic is not
+        # the threat this policy is about.
+        type filter hook output priority filter; policy accept;
+    }
+}
