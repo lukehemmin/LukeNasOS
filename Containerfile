@@ -44,6 +44,22 @@ RUN printf 'GREENBOOT_MAX_BOOT_ATTEMPTS=2\n' > /etc/greenboot/greenboot.conf
 # on every boot and pollutes the recorded rollback causes. Mask it.
 RUN systemctl mask systemd-remount-fs.service
 
+# ── the firewall ──────────────────────────────────────────────────────────
+# SPEC §9 has said "nftables is required before any network-facing service
+# ships" since the beginning; sshd shipped anyway, so this machine has been
+# answering on 22 with no filter. nftables.service runs
+# `nft -f /etc/sysconfig/nftables.conf`, so /etc holds one include line and
+# the policy itself stays in /usr where the image owns it.
+COPY config/network/lukenasos.nft /usr/share/lukenasos/lukenasos.nft
+RUN printf '# LukeNasOS: the policy lives in the image (see SPEC §9).\n# Local additions can go below the include.\ninclude "/usr/share/lukenasos/lukenasos.nft"\n' \
+        > /etc/sysconfig/nftables.conf
+
+# The banner is the only place a fresh machine shows its setup address and
+# token. It renders once at boot — before DHCP has necessarily answered — so
+# a dispatcher hook re-renders it whenever the addresses change.
+COPY config/network/50-lukenasos-banner /usr/lib/NetworkManager/dispatcher.d/50-lukenasos-banner
+RUN chmod 0755 /usr/lib/NetworkManager/dispatcher.d/50-lukenasos-banner
+
 # ── systemd units, timers, and the Samba quadlet ─────────────────────────
 COPY config/systemd/ /usr/lib/systemd/system/
 COPY config/containers/samba.container /usr/share/containers/systemd/samba.container
@@ -51,6 +67,11 @@ COPY config/containers/samba.container /usr/share/containers/systemd/samba.conta
 # headline feature silently does not exist: no boot counter is set, checks
 # never run, and a broken deployment boots to a green banner (verified the
 # hard way in the first full lifecycle run).
+#
+# sshd is already on by the base preset; the enable here is deliberate, not
+# redundant. A headless appliance whose recovery path depends on ssh should
+# say so in one place rather than inherit it (SPEC §9). It is only defensible
+# with a firewall in front of it, which is why nftables is on this list.
 RUN systemctl enable \
         greenboot-healthcheck.service \
         greenboot-loading-message.service \
@@ -67,6 +88,7 @@ RUN systemctl enable \
         lukenasos-space-watchdog.timer \
         lukenasos-balance.timer \
         var-mnt-data.mount \
+        nftables.service \
         sshd.service
 
 # ── the data contract ─────────────────────────────────────────────────────
