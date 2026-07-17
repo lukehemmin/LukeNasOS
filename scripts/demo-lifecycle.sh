@@ -259,60 +259,50 @@ assert_eq() {
         echo "ASSERT FAIL: $what — want '$want', got '$got'" >&2
         exit 1
     fi
-    rm -f "$err"
     echo "   ok: $what = $got"
 }
 
 # assert_json WHAT FIELD WANT -- COMMAND...
 #
-# `assert_eq "x" "staged" "$(vm_root luke update --json | jq -r .result)"` reports
-# `got 'null'` and throws the reason away — and `null` is exactly what a luke
-# error looks like through that jq filter, because errors are {error:{...}} and
-# have no .result. Twice today that cost a 10-minute reinstall to learn what the
-# machine had already said. A failing test that cannot say why is half a test.
+# `assert_eq "x" staged "$(vm_root luke update --json | jq -r .result)"` reports
+# `got 'null'` and throws the reason away — and null is exactly what a luke
+# ERROR looks like through that filter, since errors are {error:{…}} and carry
+# no .result. That cost two ten-minute reinstalls today to recover a message
+# the machine had already printed. A failing test that cannot say why is half
+# a test.
 assert_json() {
     local what="$1" field="$2" want="$3"; shift 3
     [ "${1:-}" = "--" ] && shift
-    # stdout is the answer, stderr is commentary. Parsing them together is how
-    # a passing update got reported as '<not json>': ssh's own warning was
-    # sitting in front of a perfectly good {"result":"staged"}.
-    local out err got
+
+    # stdout is the answer; stderr is commentary. Parsing them together is how a
+    # passing update got called '<not json>' — ssh's warning was sitting in front
+    # of a perfectly good {"result":"staged"}.
+    local out got err
     err=$(mktemp)
     out=$(vm_root "$@" 2>"$err") || true
     got=$(printf '%s' "$out" | jq -r "$field" 2>/dev/null) || got="<not json>"
+
     if [ "$want" != "$got" ]; then
         {
             echo "ASSERT FAIL: $what — want '$want', got '$got'"
             echo "   ran: $*"
-            echo "   it said:"
+            echo "   stdout:"
             printf '%s\n' "$out" | sed 's/^/     /'
-            echo "   --- and the journal the error points at ---"
-            vm_root journalctl -u lukenasos-update --no-pager -n 25 2>&1 | sed 's/^/     /' || true
+            if [ -s "$err" ]; then
+                echo "   stderr:"
+                sed 's/^/     /' "$err"
+            fi
+            # The luke error names its own cause now, but these two say what the
+            # machine underneath was doing when it happened.
+            echo "   --- journalctl -u lukenasos-update ---"
+            vm_root journalctl -u lukenasos-update --no-pager -n 25 2>/dev/null | sed 's/^/     /' || true
             echo "   --- bootc, which every luke verb stands on ---"
-            vm_root bootc --version 2>&1 | sed 's/^/     /' || true
-            vm_root bootc status --json 2>&1 | head -c 400 | sed 's/^/     /' || true
-            echo
-            echo "   --- SELinux: is it even refusing anything? (ausearch may be absent) ---"
-            vm_root journalctl -b --no-pager -g avc 2>&1 | tail -8 | sed 's/^/     /' || true
-            echo "   --- the bus systemd-run would pick, in the context luke runs in ---"
-            # "Connection reset by peer" from systemd-run is PID 1 hanging up on
-            # the D-Bus request. What the client asks, and which bus it asks on,
-            # is decided by this environment — so print it rather than guess it
-            # for the seventh time.
-            # shellcheck disable=SC2016  # these must expand in the VM, not here
-            vm_root sh -c 'echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-<unset>}"; echo "DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-<unset>}"; id; ls -l /run/systemd/private 2>&1' 2>&1 | sed 's/^/     /' || true
-            echo "   --- does the same call work with --system, or at all, right now? ---"
-            # shellcheck disable=SC2016  # $? must expand in the VM, not here
-            vm_root sh -c 'systemd-run --system --unit=probe-sys --wait --pipe --property=Type=oneshot /bin/true; echo "--system: exit $?"' 2>&1 | sed 's/^/     /' || true
-            # shellcheck disable=SC2016
-            vm_root sh -c 'systemd-run --unit=probe-plain --wait --pipe --property=Type=oneshot /bin/true; echo "plain: exit $?"' 2>&1 | sed 's/^/     /' || true
-            # shellcheck disable=SC2016
-            vm_root sh -c 'systemd-run --unit=probe-nopipe --wait --property=Type=oneshot /bin/true; echo "no --pipe: exit $?"' 2>&1 | sed 's/^/     /' || true
-            echo "   --- what PID 1 itself thought ---"
-            vm_root journalctl -b _PID=1 --no-pager -n 12 2>&1 | sed 's/^/     /' || true
+            vm_root bootc --version 2>/dev/null | sed 's/^/     /' || true
         } >&2
+        rm -f "$err"
         exit 1
     fi
+    rm -f "$err"
     echo "   ok: $what = $got"
 }
 
