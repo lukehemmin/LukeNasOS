@@ -51,6 +51,18 @@ FIRMWARE="${FIRMWARE:-uefi}"
 # erasing everything it can see.
 EXTRA_DISK="${EXTRA_DISK:-}"
 QEMU_SERIAL="${QEMU_SERIAL:-mon:stdio}"
+# What the setup phase makes. The password is the one a real owner would choose
+# at the forced change; the phase sets it deliberately so that "the password
+# follows you to your account" is something this test can check rather than
+# assume.
+SETUP_USER="${SETUP_USER:-sangho}"
+SETUP_PASSWORD="${SETUP_PASSWORD:-correct-horse-battery-staple}"
+SETUP_SHARE="${SETUP_SHARE:-family}"
+SETUP_HOSTNAME="${SETUP_HOSTNAME:-luke-nas}"
+# SMB, forwarded off the guest. The share has to be reachable from OUTSIDE the
+# machine to mean anything: a client on the box itself matches `iif lo accept`
+# and never touches the rule that opening 445 is about.
+SMB_PORT="${SMB_PORT:-4450}"
 
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
@@ -160,7 +172,7 @@ qemu_common_args() {
     fi
     args="$args -drive file=$DISK,format=qcow2,if=virtio"
     [ -n "$EXTRA_DISK" ] && args="$args -drive file=$EXTRA_DISK,format=qcow2,if=virtio"
-    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22 -device virtio-net-pci,netdev=n0"
+    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$SMB_PORT-:445 -device virtio-net-pci,netdev=n0"
     args="$args -display none -serial $QEMU_SERIAL"
     echo "$args"
     if [ -e /dev/kvm ]; then echo "-enable-kvm"; fi
@@ -238,8 +250,25 @@ kill_vm() {
     VM_PID=""
 }
 
-vm() { ssh "${SSH_OPTS[@]}" luke@localhost -- "$@"; }
-vm_root() { ssh "${SSH_OPTS[@]}" luke@localhost -- sudo "$@"; }
+# Which account drives the machine. It starts as the installer's and CHANGES
+# mid-run: `luke setup account` retires 'luke', so from phase 1c on, the harness
+# reaches the box exactly the way its owner would — as themselves, with the key
+# the installer left behind. If that migration ever breaks, this script loses the
+# machine, which is precisely what happens to a user who runs setup over ssh.
+SSH_USER="${SSH_USER:-luke}"
+vm() { ssh "${SSH_OPTS[@]}" "$SSH_USER@localhost" -- "$@"; }
+vm_root() { ssh "${SSH_OPTS[@]}" "$SSH_USER@localhost" -- sudo "$@"; }
+
+# One command as root using a PASSWORD rather than the harness's passwordless
+# sudo. That is the point of it: it makes PAM check the credential, so a
+# transferred password is proven to work rather than proven to match a string in
+# a file. Used before the harness grants itself NOPASSWD for the new account —
+# and again after a factory reset, which takes that grant away with the rest of
+# /etc.
+vm_sudo_pw() {
+    printf '%s\n' "$SETUP_PASSWORD" \
+        | ssh "${SSH_OPTS[@]}" "$SSH_USER@localhost" -- "sudo -S -p '' $1"
+}
 
 wait_ssh() {
     # Default 10 min. TCG-only hosts need more: a first boot of a new
@@ -260,6 +289,18 @@ assert_eq() {
         exit 1
     fi
     echo "   ok: $what = $got"
+}
+
+assert_ne() {
+    # For the assertions whose whole content is that something STOPPED working —
+    # a retired account, a shut port. "Anything but 0" is the real claim; naming
+    # an exact failure code here would only assert which way ssh gave up.
+    local what="$1" unwanted="$2" got="$3"
+    if [ "$unwanted" = "$got" ]; then
+        echo "ASSERT FAIL: $what — got '$got', which is exactly what must not happen" >&2
+        exit 1
+    fi
+    echo "   ok: $what (got '$got', not '$unwanted')"
 }
 
 # assert_json WHAT FIELD WANT -- COMMAND...
@@ -346,6 +387,113 @@ phase_1_fresh_boot() {
     vm_root sh -c "'mkdir -p /var/mnt/data/share && echo precious > /var/mnt/data/share/family-photos.txt'"
 }
 
+# smbclient, run from the QEMU host through the forwarded port, so the packets
+# arrive on the guest's eth0 and meet the input chain. Echoes open/closed/<data>.
+smb_get() {
+    # smb_get SHARE FILE — print the file's contents, or "closed" if SMB will not
+    # talk to us at all.
+    #
+    # Fetched to a file rather than `get FILE -`: smbclient narrates to stdout
+    # ("getting file ... as - (12.3 kb/s)"), so reading the download off stdout
+    # would compare the file's contents plus a sentence about them, and fail with
+    # a diff nobody could read.
+    local tmp out
+    tmp=$(mktemp); rm -f "$tmp"
+    if ! smbclient "//localhost/$1" -p "$SMB_PORT" -U "$SETUP_USER%$SETUP_PASSWORD" \
+            -c "get $2 $tmp" >/dev/null 2>&1 || [ ! -f "$tmp" ]; then
+        rm -f "$tmp"; echo closed; return
+    fi
+    out=$(cat "$tmp"); rm -f "$tmp"
+    printf '%s' "$out"
+}
+
+phase_1c_setup() {
+    say "phase 1c: luke setup — the wizard's API, on a real machine"
+
+    # Checked up front, not at the assertion that needs it: without smbclient the
+    # "SMB is shut" check below would pass for the wrong reason and the phase
+    # would look like it was testing the firewall while testing nothing.
+    command -v smbclient >/dev/null || {
+        echo "smbclient is required for this phase: the share has to be opened from" >&2
+        echo "OUTSIDE the machine, which is the only place the 445 rule means" >&2
+        echo "anything (a client on the box matches 'iif lo accept')." >&2
+        echo "  Fedora: dnf install -y samba-client   Debian/Ubuntu: apt-get install -y smbclient" >&2
+        return 1
+    }
+
+    # The installer leaves the setup token as luke's password and expires it, so
+    # the owner must replace it at first login. The test kickstart un-expires the
+    # account so the harness can drive it, which skips that change — so do it
+    # here, with a password we know. Otherwise "the password you chose follows
+    # you" would be checked against a token nobody chose.
+    vm_root sh -c "'echo luke:$SETUP_PASSWORD | chpasswd'"
+    local before_hash
+    before_hash=$(vm_root sh -c "'getent shadow luke | cut -d: -f2'")
+
+    assert_json "hostname result" .result set -- \
+        luke setup hostname --name "$SETUP_HOSTNAME" --json
+    assert_json "account result" .result created -- \
+        luke setup account --name "$SETUP_USER" --json
+
+    # Same hash, copied — not a new password, not a prompt.
+    assert_eq "the chosen password moved to the new account" "$before_hash" \
+        "$(vm_root sh -c "'getent shadow $SETUP_USER | cut -d: -f2'")"
+
+    # The installer's account is retired, and this is where the harness feels it:
+    # the account it has used for every other phase stops opening the door.
+    local luke_rc=0
+    ssh "${SSH_OPTS[@]}" luke@localhost -- true 2>/dev/null || luke_rc=$?
+    assert_ne "the installer account no longer opens the machine" "0" "$luke_rc"
+
+    # And the new one does, with the key the installer left for luke. Nothing
+    # else in this phase would survive this being wrong: the machine would simply
+    # be gone.
+    SSH_USER="$SETUP_USER"
+    wait_ssh
+    assert_eq "the new account answers on ssh" "$SETUP_USER" "$(vm whoami)"
+
+    # PAM checking the transferred credential for real, rather than two strings
+    # being compared in /etc/shadow. This is the assertion the unit tests cannot
+    # make: their chpasswd is a stub, and a stub always agrees with me.
+    assert_eq "the transferred password authenticates" "root" "$(vm_sudo_pw whoami)"
+
+    # The harness needs its usual passwordless root back, the way the test
+    # kickstart grants it to luke. Test-only, and only after the line above has
+    # proven the password works without it.
+    grant_test_sudo
+
+    # ── the share ──
+    # Shut before a share exists — the promise SPEC §9 makes and the reason
+    # `luke setup share` has to open it.
+    assert_eq "SMB is shut before the first share" "closed" "$(smb_get "$SETUP_SHARE" x)"
+
+    # Real podman, real create-hash.sh, real image pull. On a fresh machine this
+    # is the first time the Samba image is fetched, because the quadlet has had
+    # nothing to serve until now.
+    printf '%s' "$SETUP_PASSWORD" \
+        | vm_root luke setup share --name "$SETUP_SHARE" --user "$SETUP_USER" --password-stdin \
+        || { echo "luke setup share failed" >&2; return 1; }
+    assert_eq "samba is up once a share exists" "active" \
+        "$(vm_root systemctl is-active samba.service)"
+
+    vm_root sh -c "'echo precious > /var/mnt/data/share/$SETUP_SHARE/family-photos.txt'"
+    vm_root chown "$SETUP_USER:$SETUP_USER" "/var/mnt/data/share/$SETUP_SHARE/family-photos.txt"
+
+    # The whole claim in one line: the firewall opened, Samba is serving, the NT
+    # hash the container computed matches the password the owner typed, and the
+    # share points where it should — checked from off the machine.
+    assert_eq "the share opens from the LAN, with that password" "precious" \
+        "$(smb_get "$SETUP_SHARE" family-photos.txt)"
+
+    assert_json "setup reports complete" .complete true -- luke setup status --json
+}
+
+# The harness's own root access, granted the way the test kickstart grants it to
+# luke. Re-run after a factory reset, which clears /etc and takes it away.
+grant_test_sudo() {
+    vm_sudo_pw "sh -c 'echo \"$SETUP_USER ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/90-lukenasos-test && chmod 0440 /etc/sudoers.d/90-lukenasos-test'"
+}
+
 phase_2_stage_update() {
     say "phase 2: update stages v2, nothing reboots"
     assert_json "update result" .result staged -- luke update --json
@@ -393,16 +541,44 @@ phase_4_auto_rollback() {
 }
 
 phase_5_factory_reset() {
-    say "phase 5: factory reset preserves /data"
+    say "phase 5: factory reset preserves /data — and the NAS that serves it"
+    local uid_before
+    uid_before=$(vm_root id -u "$SETUP_USER")
     vm_root luke factory-reset --yes-i-typed-the-hostname
-    reboot_vm; wait_ssh
+    reboot_vm
+
+    # ssh is reachable as the new user only if the capsule restored the account
+    # AND its authorized_keys into a /etc that no longer had either. This wait is
+    # the first assertion of the phase, and it fails by timing out.
+    wait_ssh
+
+    # This comes first, before anything that needs root: /etc is fresh, so the
+    # harness's own NOPASSWD rule went with it, and every vm_root below would sit
+    # at a password prompt with no tty. Getting root back with the OWNER's
+    # password is also the proof that the capsule carried the credential and not
+    # just the account name — so the repair and the assertion are the same act.
+    assert_eq "the password came back with the account" "root" "$(vm_sudo_pw whoami)"
+    grant_test_sudo
+
     assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
+
+    # The uid is the one thing that cannot be re-derived. Every file on /data is
+    # owned by a number; an account restored with a different one would leave the
+    # owner locked out of their own photos, with the reset still reporting
+    # success — SPEC §5.2's broken promise in its most literal form.
+    assert_eq "the administrator survived, with the same uid" "$uid_before" \
+        "$(vm_root id -u "$SETUP_USER")"
+    assert_eq "the installer account is retired again" "L" \
+        "$(vm_root passwd -S luke | awk '{print $2}')"
+    assert_eq "the NAS remembers its name" "$SETUP_HOSTNAME" "$(vm_root cat /etc/hostname)"
+
     assert_eq "data survived reset" "precious" "$(vm_root cat /data/share/family-photos.txt)"
-    # And through the share (the NAS still works, not just the bytes):
-    if vm command -v smbclient >/dev/null 2>&1; then
-        vm smbclient //localhost/share -U luke%lukenasos -c "'get family-photos.txt /tmp/via-share.txt'"
-        assert_eq "data via samba" "precious" "$(vm cat /tmp/via-share.txt)"
-    fi
+
+    # Bytes surviving is not the promise; the NAS coming back is. The share
+    # definition, the Samba credential and the open port all had to be rebuilt
+    # from /data into a blank /etc for this to answer.
+    assert_eq "the share came back, and still opens from the LAN" "precious" \
+        "$(smb_get "$SETUP_SHARE" family-photos.txt)"
 }
 
 phase_6_power_loss() {
@@ -525,13 +701,14 @@ all() {
     make_oemdrv
     install_vm
     phase_1_fresh_boot
+    phase_1c_setup
     phase_2_stage_update
     phase_3_apply
     phase_4_auto_rollback
     phase_5_factory_reset
     phase_6_power_loss
     kill_vm
-    say "LIFECYCLE COMPLETE — install, update, break, auto-rollback, reset: all green"
+    say "LIFECYCLE COMPLETE — install, set up, update, break, auto-rollback, reset: all green"
 }
 
 resume_from_2() {
@@ -542,6 +719,7 @@ resume_from_2() {
     boot_vm; wait_ssh
     assert_eq "verdict" "OK" "$(vm_root luke status --json | jq -r .verdict)"
     vm_root sh -c "'mkdir -p /var/mnt/data/share && echo precious > /var/mnt/data/share/family-photos.txt'"
+    phase_1c_setup
     phase_2_stage_update
     phase_3_apply
     phase_4_auto_rollback
@@ -555,6 +733,12 @@ resume_from_4() {
     # Debug helper: continue on an existing disk that already passed
     # phases 1-3 (booted v2, data file written). Saves a reinstall while
     # iterating on the later phases.
+    #
+    # That disk has been through setup, so 'luke' is retired on it: drive it as
+    # the account that replaced them, or ssh will not open. (Not ${SSH_USER:-…} —
+    # SSH_USER already defaulted to luke at the top and is never empty. Override
+    # with SETUP_USER.)
+    SSH_USER="$SETUP_USER"
     trap kill_vm EXIT
     registry_up
     boot_vm; wait_ssh
