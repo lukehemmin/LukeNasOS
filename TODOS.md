@@ -1,7 +1,12 @@
 # TODOS
 
-Deferred scope from the /autoplan review (2026-07-12, branch `260709_test`).
-Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
+Started as deferred scope from the /autoplan review (2026-07-12, branch `260709_test`);
+it now also carries debts found while building. Format: What / Why / Context /
+Effort (human → CC) / Priority / Depends on.
+
+Checked against the tree, not from memory, on 2026-07-17. That check is the point: this
+list had been describing `luke unlock-console` and a Cockpit plugin surface as though they
+existed, on a machine with no Cockpit in it at all.
 
 > **Shipped 2026-07-17** (PR #3, #4), removed from this list: the install-UX repair
 > wave (one-disk erase, biosboot, setup token, quiet boot, ISO branding, SPEC sweep,
@@ -15,18 +20,21 @@ Format: What / Why / Context / Effort (human → CC) / Priority / Depends on.
 > share definitions survive a factory reset, and nothing had ever written them anywhere
 > that does.
 
-## Next: the first-boot wizard
+## Now: debts, in the order they will bite
 
-Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-20260716-193011.md`
-(eng + design reviewed, decisions recorded there). The repair wave was Phase 1 of it;
-this is the rest, and it is the first work that puts a screen in front of a user.
-
-- [x] **`luke setup` verbs** — shipped 2026-07-17: `status | hostname | account | share`,
-  all `--json`, plus the identity capsule and `lukenasos-identity.service`. Two things the
-  design had not seen: SPEC §5.2's capsule was normative and **entirely unimplemented**, so
-  an account in `/etc` alone would have been erased by the first factory reset; and Samba
-  is a container, so no Unix password can reach it (NT hashes are not derivable) — `share`
-  asks for the same password once via `--password-stdin` and stores the container's hash.
+- [ ] **`luke setup` has never run on a real machine** — shipped 2026-07-17:
+  `status | hostname | account | share`, all `--json`, plus the identity capsule and
+  `lukenasos-identity.service`. 29 tests pass, and every one of them runs against **stubs**
+  — `useradd`, `podman`, `nft`, `systemctl` are all fakes written from reading the docs.
+  That proves the logic, not that it works. The `podman run --entrypoint create-hash.sh`
+  call in particular was built by reading the script and has never been executed; the stub
+  encodes the same understanding, so if that understanding is wrong both agree and the
+  suite stays green. The lifecycle E2E does not touch these verbs at all.
+  Fix: a lifecycle phase — spend the token, `setup account`, reconnect over ssh as the new
+  user (does the credential transfer actually work?), `setup share`, mount it from a second
+  VM through the firewall, then factory-reset and check the account and share come back.
+  That last step is the capsule's whole reason to exist and only a stub currently says it
+  works. (M → S, P1) **← in progress**
 
 - [ ] **The digest pin does not pin anything** — the Containerfile pins the base by
   digest because "an OS that promises safe updates cannot itself update from a mutable
@@ -56,6 +64,30 @@ this is the rest, and it is the first work that puts a screen in front of a user
   LXC has no podman), then fix whichever side is lying — and if it is §9, decide
   deliberately whether we *want* password auth on, rather than inheriting it. (S → S, P1)
 
+## Next: the first-boot wizard
+
+Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-20260716-193011.md`
+(eng + design reviewed, decisions recorded there). The repair wave was Phase 1 of it;
+this is the rest, and it is the first work that puts a screen in front of a user.
+`luke setup` gave it a privileged API to call. It still has nowhere to run:
+
+- [ ] **Cockpit is not installed** — nothing in `Containerfile`, `config/`, or the
+  kickstart mentions it. Every item below is a Cockpit plugin, so this blocks all of them,
+  and it was missing from this list entirely while the list described the plugins in
+  detail. Meanwhile the firewall already opens 9090 "for the setup wizard and dashboard"
+  and `luke/banner` already tests for `cockpit.socket` before printing the URL — both
+  written to be true the day this lands, and both currently describing a port and a unit
+  that do not exist. Includes: the packages, `cockpit.socket` enabled, the TLS story for a
+  device with no domain (the banner already promises users the browser warning is
+  expected), and decision 5.3A — hiding the stock pages, since cockpit-storaged can
+  repartition the contract disk and the systemd page can disable greenboot, i.e. one click
+  can void the guarantee SPEC §6 exists to protect. (M → S, P1, blocks: everything below)
+
+- [ ] **`luke unlock-console`** — decision 5.3A's escape hatch: an explicit, event-logged
+  verb that reveals full Cockpit for advanced users. Does not exist; this list referred to
+  it as though it did. Only meaningful once the stock pages are actually hidden, so it
+  ships with the item above. (S → S, P2, depends: Cockpit)
+
 - [ ] **First-boot wizard, step 1** — "Name your NAS and your account". No password
   fields: the PAM forced-change at login already set one, and `luke setup account` now
   transfers it. Then render the sign-out interstitial and only then `loginctl
@@ -82,15 +114,17 @@ this is the rest, and it is the first work that puts a screen in front of a user
   `luke status --json`, a state table per segment (pending/ok/failed/degraded), stacked
   under 480px, designed in both themes. (M → S, P2)
 
-- [ ] **Post-wizard landing page** — Phase 1 hides stock Cockpit pages (`luke
-  unlock-console` is the escape hatch), so without this `:9090` after setup is an empty
-  shell. Health strip + share list + `luke status` facts. The seed of the timeline UI.
-  (M → S, P2)
+- [ ] **Post-wizard landing page** — Phase 1 hides the stock Cockpit pages, so without
+  this `:9090` after setup is an empty shell. Health strip + share list + `luke status`
+  facts. The seed of the timeline UI. (M → S, P2, depends: Cockpit)
 
 - [ ] **Playwright E2E for the wizard** — `cockpit.spawn` runs over websockets, so curl
   cannot exercise a Cockpit plugin. This scaffolding is why the wizard is ~1.5 weeks and
-  not a half-day. Runs at a phone viewport and a desktop one, light and dark, and mounts
-  the share from a second VM through the firewall. (M → S, P1, with the wizard)
+  not a half-day. Runs at a phone viewport and a desktop one, light and dark. Covers the
+  browser half only: the machine half (does the account transfer work, does the share
+  mount, does it all survive a factory reset) belongs to the lifecycle phase in the first
+  debt above, which does not need a browser and should not wait for one.
+  (M → S, P1, with the wizard)
 
 - [ ] **Interactive ISO variant** — `--interactive` drops `user`/`network`/`timezone`/
   `keyboard` from the kickstart so anaconda asks, and must also strip the `chage -d 0`
@@ -100,14 +134,19 @@ this is the rest, and it is the first work that puts a screen in front of a user
 ## Deferred past M1
 
 - [ ] **mDNS `luke.local` discovery** — so a headless NAS is findable without hunting for
-  its IP. Rescheduled by the install-UX design (eng review 2026-07-16): ships in that
-  design's Phase 2 together with the nftables policy (a new network service must not
-  precede the firewall); Phase 1 findability is the console banner printing the wizard
-  URL. (S → S, P2, depends: nftables)
+  its IP. Rescheduled by the install-UX design (eng review 2026-07-16): a new network
+  service must not precede the firewall, and now it does not — **the nftables dependency is
+  met** (shipped 2026-07-17), so this is unblocked and needs its own port opened
+  deliberately (5353/udp) rather than by habit. Phase 1 findability is the console banner
+  printing the wizard URL. (S → S, P2)
 
 - [ ] **Disk portability test** — pull the boot drive, put it in another machine, confirm
-  the NAS identity comes back from `/data`. This is a marketing claim today; it should be a
-  test. Needs real hardware (M2). (M → S, P3)
+  the NAS identity comes back from `/data`. No longer only a marketing claim: as of
+  2026-07-17 there is a mechanism, and `lukenasos-identity.service` restores the account,
+  uid, hostname and shares from the capsule on every boot precisely so a moved disk works.
+  So this stopped being "write a test for a claim" and became "test the code that makes the
+  claim true" — and QEMU can do most of it (boot the installed disk on a VM with different
+  virtual hardware) without waiting for M2 hardware. (M → S, P2)
 
 - [ ] **Timeline / undo web UI** — the heart of the product vision. The M1 event model is
   its foundation. Stack DECIDED (eng review 2026-07-16, install-UX design): Cockpit
