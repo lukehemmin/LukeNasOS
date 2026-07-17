@@ -98,6 +98,18 @@ jobs:
           size=$(podman image inspect lukenasos:ci --format '{{.Size}}')
           echo "image size: $size bytes"
           test "$size" -lt $((4 * 1024 * 1024 * 1024))
+      - name: The firewall policy parses, as shipped
+        # nftables.service loads this on every boot; a typo means a machine
+        # that comes up with no filter at all, which is the hole the policy
+        # exists to close. Checked here rather than in `static` because
+        # `nft -c` is not a parser — it talks to the kernel, so it needs
+        # CAP_NET_ADMIN and it needs to read the file from inside the image.
+        run: |
+          podman run --rm --cap-add NET_ADMIN --entrypoint sh lukenasos:ci -c \
+            'nft -c -f /usr/share/lukenasos/lukenasos.nft && echo "policy parses"'
+          # And the include that nftables.service actually reads must point at it.
+          podman run --rm --entrypoint sh lukenasos:ci -c \
+            'grep -q "/usr/share/lukenasos/lukenasos.nft" /etc/sysconfig/nftables.conf'
 
   lifecycle:
     # The full VM lifecycle: install → update → break → auto-rollback →
