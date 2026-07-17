@@ -5,6 +5,17 @@
 > and kernel options that do not exist (`CONFIG_OSTREE`). None of that survives contact
 > with how bootc/ostree actually works. This is the normative contract; `ARCHITECTURE.md`
 > explains why.
+>
+> **Amended 2026-07-17** (install-UX repair wave). Several lines here described a machine
+> that never existed, which is worse than saying nothing: the network stack (§9) was
+> NetworkManager all along, `sshd` (§9) always shipped enabled, `nftables` (§9) was
+> required-but-absent, the subvolume and `@seed` paths (§2.2, §2.4) were not what the
+> installer creates, and §10 claimed there was no default password while the installer
+> shipped a well-known one. Each was checked against the image and the installer, then
+> written down as it is. Added in the same pass: the BIOS boot partition (§2.1), the
+> one-disk erase rule (§2.1), the quiet cmdline (§3), the wizard as a second sanctioned
+> surface (§6), the SETUP block (§7), the setup token (§10), and BIOS as a tested target
+> (§11).
 
 ## 1. System Overview
 
@@ -28,6 +39,12 @@
 ### 2.1 Partitions (GPT)
 
 ```
+Partition 0: BIOS boot            ← BIOS+GPT only; unused (and harmless) on UEFI
+  Type: 21686148-6449-6E6F-744E-656564454649
+  FS:   none
+  Size: 1 MiB
+  Mount: —
+
 Partition 1: EFI System Partition
   Type: C12A7328-F81F-11D2-BA4B-00A0C93EC93B
   FS:   FAT32
@@ -54,12 +71,23 @@ on GRUB decrementing `boot_counter` there; on btrfs that write fails silently an
 automatic rollback does not happen. This is the single most important line in this
 document.
 
+**Normative:** the BIOS boot partition is not optional on a GPT disk, even though nothing
+mounts it. Without it, a BIOS machine stalls forever at "Installation Destination
+(Kickstart insufficient)" and the unattended install silently becomes an interactive one
+with nobody watching (observed on a real boot, 2026-07-16). It costs 1 MiB on UEFI
+machines, which is the cheapest insurance in this document.
+
+**Normative:** exactly one disk is erased — the one `%pre` selects (single disk auto,
+otherwise a console menu with a typed confirmation, or `inst.luke.disk=`). `clearpart
+--all` without `ignoredisk --only-use` means every attached disk, which on the multi-disk
+machines this product is for is data loss, not a UX defect.
+
 ### 2.2 Subvolumes
 
 ```
-btrfs subvolume create @sysroot   → /sysroot           (holds /ostree: repo, deployments, stateroot var)
+btrfs subvolume create root       → /sysroot           (holds /ostree: repo, deployments, stateroot var)
 btrfs subvolume create @data      → /var/mnt/data      (user data; /data is a symlink)
-btrfs subvolume create @seed      → /var/lib/luke/seed (OCI archive, not a bootable copy)
+btrfs subvolume create @seed      → /var/mnt/seed      (OCI archive, not a bootable copy)
 ```
 
 `/var` is ostree's stateroot var under `/ostree/deploy/<stateroot>/var`. Mounting a
@@ -84,7 +112,7 @@ filesystem read-only. The controls above are layered for that reason.
 
 | Path | Source | Options |
 |------|--------|---------|
-| `/sysroot` | `@sysroot` | `subvol=@sysroot,compress=zstd:1,noatime` |
+| `/sysroot` | `root` | `subvol=root,compress=zstd:1,noatime` |
 | `/boot` | partition 2 | `defaults` |
 | `/boot/efi` | ESP | `fmask=0077,dmask=0077` |
 | `/var/mnt/data` | `@data` | `subvol=@data,compress=zstd:1,noatime` |
@@ -103,11 +131,15 @@ does not exist.
 ```
 ostree=...                       (managed by ostree; never hand-edited)
 root=UUID=<btrfs-part-uuid>
-rootflags=subvol=@sysroot
+rootflags=subvol=root
 console=tty0
 console=ttyS0,115200n8
 selinux=1 enforcing=1
+quiet loglevel=4                 (the banner is the home screen, not dmesg)
 ```
+
+No plymouth splash: it would fight the serial console above and the boot banner (§7),
+which is the screen this appliance actually has.
 
 ## 4. Update Contract
 
@@ -198,7 +230,16 @@ the reset, the first boot banner reports that the data survived, with its size.
 
 ## 6. `luke` CLI
 
-`luke` is the only user-facing surface. It never makes the user type `bootc` or `ostree`,
+`luke` is the only *command* a user types, and the only thing that changes system state.
+The setup wizard and dashboard (a Cockpit plugin) are a second sanctioned surface, with a
+rule: they render `luke` output and call `luke` verbs, never `useradd`/`smbpasswd`/`nft`
+directly. One audited privileged surface, three front ends (browser, console, ssh).
+Cockpit's own storage/systemd/terminal pages are hidden in product mode — one click there
+can repartition the contract disk or disable greenboot, which is exactly the guarantee
+this document exists to protect — and `luke unlock-console` reveals them deliberately,
+with an event logged.
+
+`luke` never makes the user type `bootc` or `ostree`,
 but it does not hide them either — it reconciles against their real state on every run.
 bootc/ostree are the source of truth; `luke`'s own state file is a cache and an
 annotation.
@@ -238,12 +279,28 @@ The banner is the appliance's only home screen. Its hierarchy is fixed:
 ```
 1. VERDICT     ● OK   ▲ RECOVERED   ✕ DEGRADED
 2. LAST EVENT  (when RECOVERED) what happened, why, when
-3. VERSION     booted version; staged version if one is waiting
-4. NEXT        luke status · luke doctor
+3. SETUP       (until setup is done) the setup token, and where to finish
+4. VERSION     booted version; staged version if one is waiting
+5. NEXT        luke status · luke doctor
 ```
 
 What a user must learn in half a second is whether they are fine — not which version they
-are running.
+are running. The verdict stays first even on the very first boot, when the setup block is
+the thing they came to read: a DEGRADED first boot must not hide behind setup excitement.
+
+The SETUP block exists only while setup is unfinished — the token file is present and the
+administrator's password is still expired — and never claims more than is true:
+
+- **No wizard installed yet:** point at this console and `ssh`. Never print a URL to a
+  port nothing listens on.
+- **No address yet:** say so ("check the cable"), and mean the promise that the screen
+  updates itself — a NetworkManager dispatcher hook re-renders the banner when the
+  address arrives.
+- **Several addresses:** offer all of them. A NAS with two NICs is normal, and guessing
+  sends the user to one their laptop may not reach.
+- **TLS:** the self-signed certificate warning is part of first contact, and the first
+  contact is usually a phone, where the bypass hides behind a full-screen interstitial.
+  Name the gesture ("choose Advanced, then Proceed"), not just the fact.
 
 ## 8. Health Checks and Rollback
 
@@ -258,21 +315,57 @@ are running.
 
 ## 9. Networking
 
-`systemd-networkd`, DHCP by default. `sshd` disabled by default; enabling it is an
-explicit, documented action. `nftables` is required before any network-facing service
-ships.
+**NetworkManager**, DHCP by default. It is what the bootc base ships and enables, and
+what anaconda writes connection profiles for; the earlier `systemd-networkd` line in this
+spec described a machine that never existed. Amended 2026-07-17 after checking the image
+rather than the document.
+
+`sshd` is **enabled by default, deliberately**. This is a headless appliance: when the
+browser cannot help you, ssh is the recovery path, and the lifecycle test drives the
+machine the same way. Root login and password authentication over ssh stay refused; the
+administrator is a normal `wheel` account. The earlier "disabled by default" line was
+never true of the shipped image.
+
+`nftables` (normative, and now real): the policy in `/usr/share/lukenasos/lukenasos.nft`
+is loaded by `nftables.service` on every boot. Default drop inbound; open ports are named
+one at a time with the reason:
+
+| Port | Why |
+|------|-----|
+| 22 | ssh — the recovery path above |
+| 9090 | the setup wizard / dashboard |
+
+SMB (445/139) is **not** open by installing the OS. `luke setup share` opens it when the
+first share is created and closes it with the last: a file-sharing port that exists
+because the OS booted, rather than because a share does, is a port nobody asked for.
 
 ## 10. Users
 
-First boot creates the administrator. There is no shipped default password: QEMU images
-document a first-login credential that must be changed on first use, and the installer
-creates the user via kickstart. An appliance you cannot log into is not an appliance.
+First boot creates the administrator (`luke`, in `wheel`). There is no shipped default
+password and no well-known one: a password every install shares is not a secret, and it
+makes ownership a race — the first stranger on the LAN to reach the setup page wins.
+
+Instead the installer generates a **per-install setup token**, sets it as the
+administrator's password, and expires it (`chage -d 0`) so the first login must replace
+it. The token is printed **only on the console banner**, which makes console or physical
+access the proof of ownership.
+
+The token's format is a usability decision as much as a security one: it is read off a
+screen across a room and typed into a phone. Crockford-style base32 minus `0` and `1`
+(no character can be confused with another), 12 characters grouped `xxxx-xxxx-xxxx`,
+~59 bits — ample for a LAN-local secret that is force-changed at first login.
+
+The banner stops printing the token, and the machine deletes it, the moment the forced
+change happens. Automated installs override the account with their own `--kickstart`,
+as before. An appliance you cannot log into is not an appliance; an appliance anyone can
+log into is not yours.
 
 ## 11. Build and Distribution
 
 | Artifact | Target | Gate |
 |----------|--------|------|
 | `lukenasos-x86_64.iso` / `.qcow2` | x86_64 UEFI | **primary — gates all milestones** |
+| the same ISO, on x86_64 BIOS/CSM | x86_64 BIOS | install check (the biosboot partition, §2.1) |
 | `lukenasos-arm64-generic.raw` | ARM64 UEFI / QEMU virt | boot check |
 | `lukenasos-rpi4.raw`, `lukenasos-rpi5.raw` | Raspberry Pi | spike; never blocks the primary |
 
