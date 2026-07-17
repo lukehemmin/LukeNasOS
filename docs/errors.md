@@ -40,9 +40,16 @@ far in the past also breaks TLS — `luke doctor` checks this.
 
 The pull ran inside the `lukenasos-update` systemd unit and did not finish.
 
-**Fix:** `journalctl -u lukenasos-update -b` shows why. Common causes: disk
+**Fix:** the error's own `Cause:` line carries what the stage command actually
+said — read that first; it is the answer in most cases. Common ones: disk
 pressure (`luke doctor` → disk space), a half-reachable registry, or a
 signature rejection.
+
+`journalctl -u lukenasos-update` is **not** where to look, and this document
+used to say it was. The unit runs under `systemd-run --pipe`, which routes its
+output through the pipe instead of the journal, so the journal holds nothing
+but systemd's own "Failed to start" line. That dead end cost a real
+investigation; the reason now travels with the error instead.
 
 ## LUKE-E023 — this version was rolled back on this machine
 
