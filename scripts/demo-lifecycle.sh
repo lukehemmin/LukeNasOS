@@ -260,6 +260,24 @@ phase_1_fresh_boot() {
     boot_vm; wait_ssh
     assert_eq "verdict" "OK" "$(vm_root luke status --json | jq -r .verdict)"
     assert_eq "booted" "v1" "$(vm_root luke status --json | jq -r .booted)"
+
+    # `luke status` answers the moment ssh does, which is BEFORE greenboot has
+    # reached a verdict — so the two asserts above passed on a machine that
+    # rebooted itself 67 seconds later, on the strength of a banner unit stuck
+    # in a restart storm. A fresh install that cannot survive its own health
+    # check is not a fresh install that booted OK.
+    say "phase 1b: the boot survives its own health check"
+    if ! vm_root systemctl is-active --quiet greenboot-healthcheck.service; then
+        vm_root timeout 300 systemctl start greenboot-healthcheck.service >/dev/null 2>&1 || true
+    fi
+    assert_eq "greenboot verdict" "active" \
+        "$(vm_root systemctl is-active greenboot-healthcheck.service 2>/dev/null || echo failed)"
+    # Nothing in the rig may be sitting in `failed`: the core-services check
+    # fails the instant it sees one, and a red boot on a fresh install means a
+    # reboot loop with no rollback target to escape to.
+    local failed
+    failed=$(vm_root systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+    assert_eq "failed units on a fresh boot" "" "${failed% }"
     # Write the file that must survive everything, through the data path.
     vm_root sh -c "'mkdir -p /var/mnt/data/share && echo precious > /var/mnt/data/share/family-photos.txt'"
 }
