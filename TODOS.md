@@ -41,13 +41,20 @@ this is the rest, and it is the first work that puts a screen in front of a user
   rides along with the still-pending GHCR publish. Until then, every red `build` job with
   `manifest unknown` is this, not the commit under it. (M → S, P1)
 
-- [ ] **Verify sshd really refuses password auth, or stop saying it does** — SPEC §9 says
-  "password authentication over ssh stays refused", but the console banner tells a new
-  owner to `ssh luke@<ip>` and type the setup token, which only works if it does not. One
-  of the two is wrong and nothing in the repo configures sshd, so the base image's default
-  decides. Same shape as the §9/§10 corrections in PR #3: check the image, not the
-  document. `podman run --rm --entrypoint sh <base> -c 'sshd -T | grep -i passwordauth'`
-  answers it in seconds — it needs podman, which the dev LXC does not have. (S → S, P1)
+- [ ] **SPEC §9 says ssh refuses passwords; it almost certainly does not** — §9: "password
+  authentication over ssh stays refused". But the console banner tells a new owner to
+  `ssh luke@<ip>` and type the setup token, which only works if it is allowed. One of the
+  two is wrong, and nothing in this repo configures sshd, so the base image decides.
+  Evidence so far (2026-07-17), from the base image's own recipe at
+  `gitlab.com/fedora/bootc/base-images`: `standard/manifest.yaml` and its includes are
+  package lists — there is no `sshd_config` drop-in and no postprocess touching ssh
+  anywhere in the tree. So Fedora's `openssh-server` default applies, and that default is
+  **yes**. Which would make §9 wrong and the banner right — the same shape as the §9/§10
+  corrections in PR #3, where the document described a machine that never existed.
+  Not yet confirmed against the built image, only against its recipe. Settle it with
+  `podman run --rm --entrypoint sh <base> -c 'sshd -T | grep -i passwordauth'` (the dev
+  LXC has no podman), then fix whichever side is lying — and if it is §9, decide
+  deliberately whether we *want* password auth on, rather than inheriting it. (S → S, P1)
 
 - [ ] **First-boot wizard, step 1** — "Name your NAS and your account". No password
   fields: the PAM forced-change at login already set one, and `luke setup account` now
