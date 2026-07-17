@@ -110,15 +110,24 @@ else
     stage_cmd=(bootc upgrade --quiet)
 fi
 
-# The pull runs as a transient systemd unit; we attach to it. Closing the
-# terminal does not kill the update.
+# The pull runs as a transient systemd unit; closing the terminal does not
+# kill the update.
 #
-# Keep what it said. `--pipe` routes the unit's output through this pipe
-# INSTEAD of the journal, so the old advice — "see: journalctl -u
-# lukenasos-update" — pointed at a journal that is always empty, while the
-# real reason went to /dev/null under --json. An update that fails and cannot
-# say why is the worst error in this CLI: the whole product is "you can undo
-# it", and the user's first question is what happened.
+# No --pipe, deliberately. It hands the caller's fifo to PID 1 over D-Bus, and
+# SELinux refuses to let dbus-broker (system_dbusd_t) read a fifo belonging to
+# an ssh session (sshd_session_t):
+#
+#   AVC denied { read } comm="dbus-broker" path="pipe:[…]"
+#       scontext=system_dbusd_t tcontext=sshd_session_t tclass=fifo_file
+#
+# systemd-run reports that as "Failed to start transient service unit:
+# Connection reset by peer", which names neither the pipe nor SELinux. It only
+# bites over ssh — from a console or a service the context differs — so it
+# survived every local reproduction and only showed up on F44's newer policy.
+#
+# Without --pipe the unit logs to the journal, which is where the update's own
+# error message has been telling people to look all along. So this both fixes
+# the failure and makes that advice true.
 update_log=$(mktemp) || die "$EXIT_ERROR" LUKE-E021 \
     "cannot stage the update" "no writable temp space" "luke doctor"
 # shellcheck disable=SC2064  # expand now: the path must survive the trap
@@ -130,29 +139,31 @@ trap "rm -f '$update_log'" EXIT
 # is what a bare `systemd-run` under `set -e` does, silently, before `$?` can
 # even be read.
 run_stage() {
-    if [ "$JSON" = 1 ]; then
-        systemd-run --unit=lukenasos-update --wait --pipe \
-            --property=Type=oneshot \
-            "${stage_cmd[@]}" > "$update_log" 2>&1
-    else
-        systemd-run --unit=lukenasos-update --wait --pipe \
-            --property=Type=oneshot \
-            "${stage_cmd[@]}" 2>&1 | tee "$update_log"
-        return "${PIPESTATUS[0]}"
-    fi
+    systemd-run --unit=lukenasos-update --wait --collect \
+        --property=Type=oneshot \
+        "${stage_cmd[@]}" > "$update_log" 2>&1
 }
 
 stage_rc=0
 run_stage || stage_rc=$?
 
+# The unit's own output is in the journal now, not in our hands. Fetch it so
+# the error can carry it, and so a human watching sees what happened.
+journalctl -u lukenasos-update --no-pager -n 40 -o cat >> "$update_log" 2>/dev/null || true
+[ "$JSON" = 1 ] || sed 's/^/   /' "$update_log"
+
 if [ "$stage_rc" != 0 ]; then
-    # The last few lines are what bootc actually complained about; the rest is
-    # download progress nobody needs at this point.
-    reason=$(grep -viE '^\s*$|Running as unit|Finished with result|Service runtime|CPU time|Memory peak|Main processes terminated' \
-        "$update_log" | tail -3 | tr '\n' ' ' | sed 's/  */ /g')
+    # What the user needs is what the STAGE COMMAND said, and systemd wraps it
+    # in boilerplate on both sides: "Running as unit…", then the command's own
+    # words, then "Main process exited… / Failed with result… / Failed to
+    # start…". Taking the last lines picks systemd's epitaph and drops bootc's
+    # actual complaint, so strip systemd's voice and keep what is left.
+    reason=$(grep -vE '^\s*$' "$update_log" \
+        | grep -viE 'Running as unit|Finished with result|Service runtime|CPU time consumed|Memory peak|Main process(es)? (exited|terminated)|Failed with result|Failed to start|^Starting .*\.\.\.$|Deactivated successfully|Consumed .* CPU time' \
+        | tail -3 | tr '\n' ' ' | sed 's/  */ /g; s/ $//')
     die "$EXIT_ERROR" LUKE-E021 \
         "staging the update failed" \
-        "${reason:-$(printf '%s' "$(tail -1 "$update_log")")}" \
+        "${reason:-see: journalctl -u lukenasos-update}" \
         "luke doctor"
 fi
 
