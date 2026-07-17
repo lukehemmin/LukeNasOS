@@ -343,7 +343,15 @@ phase_6_power_loss() {
 
 verify_static() {
     say "static verification (no VM)"
-    bash -n "$REPO_ROOT"/luke/* "$REPO_ROOT"/scripts/*.sh
+    bash -n "$REPO_ROOT"/luke/* "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/tests/*.sh
+    # The kickstart's %pre and %post are shell too, and %pre is the code that
+    # decides which disk gets erased. A syntax error there is discovered at
+    # install time, on someone's hardware.
+    for section in pre post; do
+        awk -v s="%$section " '$0 ~ "^"s {f=1;next} /^%end/{f=0} f' \
+            "$REPO_ROOT/installer/luke.ks" | bash -n \
+            || { echo "installer/luke.ks: %$section has a syntax error" >&2; return 1; }
+    done
     if command -v shellcheck >/dev/null; then
         shellcheck -x -P "$REPO_ROOT/luke" \
             "$REPO_ROOT"/luke/luke "$REPO_ROOT"/luke/status \
@@ -351,7 +359,22 @@ verify_static() {
             "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
             "$REPO_ROOT"/luke/lib.sh \
             "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
-            "$REPO_ROOT"/config/greenboot/red.d/*.sh
+            "$REPO_ROOT"/config/greenboot/red.d/*.sh \
+            "$REPO_ROOT"/config/network/50-lukenasos-banner
+    fi
+
+    # The two decisions that ruin someone's day if they are wrong: which disk
+    # gets erased, and what the first screen tells them. Both run in a second
+    # here; the alternative is finding out during a 10-minute QEMU install.
+    "$REPO_ROOT/tests/pre-disk.sh"
+    "$REPO_ROOT/tests/banner-setup.sh"
+
+    # The firewall policy is loaded by nftables.service at boot; a typo means
+    # a machine that boots with no filter at all, which is exactly the hole
+    # this policy exists to close.
+    if command -v nft >/dev/null; then
+        nft -c -f "$REPO_ROOT/config/network/lukenasos.nft" \
+            || { echo "config/network/lukenasos.nft does not parse" >&2; return 1; }
     fi
     # No credentials in the image recipe — the classic self-own.
     if grep -rEn 'BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}' \

@@ -1,21 +1,102 @@
 #!/usr/bin/env bash
 # luke banner — generate the console boot banner (the appliance's only home
 # screen). Runs from lukenasos-banner.service on every boot, after
-# boot-check has settled the verdict.
+# boot-check has settled the verdict, and again whenever the network changes.
 #
-# Hierarchy is fixed: 1 VERDICT, 2 LAST EVENT (when RECOVERED), 3 VERSION,
-# 4 NEXT. What a user must learn in half a second is whether they are fine,
-# not which version they are on.
+# Hierarchy is fixed (SPEC §7): 1 VERDICT, 2 LAST EVENT (when RECOVERED),
+# 3 SETUP (only until setup is done), 4 VERSION, 5 NEXT. What a user must
+# learn in half a second is whether they are fine, not which version they are
+# on — so the verdict stays first even on the very first boot, when the setup
+# block is the thing they came here to read.
 
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
-OUT_DIR="/run/issue.d"
+# Seams: unset on a real machine, where the defaults are the real thing.
+# tests/banner-setup.sh uses them to stand a whole machine up in a temp dir.
+OUT_DIR="${LUKE_ISSUE_DIR:-/run/issue.d}"
 OUT="$OUT_DIR/40-lukenasos.issue"
+SHADOW="${LUKE_SHADOW:-/etc/shadow}"
+COCKPIT_UNIT="${LUKE_COCKPIT_UNIT:-/usr/lib/systemd/system/cockpit.socket}"
 mkdir -p "$OUT_DIR"
 
 booted_ver=$(booted_version)
 staged_ver=$(bootc status --json 2>/dev/null | jq -r '.status.staged.image.version // empty')
+
+# ── setup state ───────────────────────────────────────────────────────────
+# The token is this machine's first-login secret, printed here and nowhere
+# else: console access is what proves you own the NAS. It stops being printed
+# the moment it stops being true — i.e. once the forced password change has
+# happened. shadow's third field is the last-change day; `chage -d 0` sets it
+# to 0 ("must change at next login"), and PAM rewrites it on the change. That
+# is a fact about the machine, not a flag we maintain.
+setup_pending() {
+    [ -f "$LUKE_SETUP_TOKEN" ] || return 1
+    [ "$(awk -F: '$1=="luke" {print $3}' "$SHADOW" 2>/dev/null)" = "0" ]
+}
+
+# Every global IPv4 the machine answers on. A NAS with two NICs is normal, and
+# picking one arbitrarily would send the user to an address their laptop may
+# not be able to reach.
+setup_addresses() {
+    ip -4 -o addr show scope global up 2>/dev/null \
+        | awk '{split($4, a, "/"); print a[1]}' | sort -u
+}
+
+# The setup wizard is a Cockpit plugin, and it does not exist yet — the
+# repair wave ships before it. Until it does, this banner must not send
+# anyone to a dead port: it says what is true today (sign in here or over
+# ssh), and grows the web address the moment the wizard lands. Neither
+# version lies, and neither needs rewriting when the other arrives.
+wizard_installed() {
+    [ -f "$COCKPIT_UNIT" ] || [ -f /etc/systemd/system/cockpit.socket ]
+}
+
+setup_block() {
+    local token addrs count a
+    token=$(cat "$LUKE_SETUP_TOKEN" 2>/dev/null || true)
+    [ -n "$token" ] || return 0
+    mapfile -t addrs < <(setup_addresses)
+    count=${#addrs[@]}
+
+    echo "  Setup:   not finished yet. Sign in as 'luke' with this token:"
+    echo ""
+    echo "               ${token}"
+    echo ""
+    echo "           You will be asked to choose a password immediately."
+
+    if wizard_installed; then
+        if [ "$count" = 0 ]; then
+            # The dead-on-arrival screen: no address means no wizard, no ssh,
+            # nothing. Say what to do instead of printing a URL that cannot
+            # work.
+            echo "           No network address yet — check the cable or your router."
+            echo "           This screen updates itself when the network comes up."
+        elif [ "$count" = 1 ]; then
+            echo "           Finish setup at  https://${addrs[0]}:9090  from another device."
+        else
+            echo "           Finish setup from another device, at any of:"
+            for a in "${addrs[@]}"; do
+                echo "             https://${a}:9090"
+            done
+        fi
+        [ "$count" = 0 ] || cat <<'TLS'
+           Your browser will warn about the certificate. That is expected
+           for a device with no public domain: choose Advanced, then Proceed.
+TLS
+    else
+        if [ "$count" = 0 ]; then
+            echo "           No network address yet — check the cable or your router."
+            echo "           This screen updates itself when the network comes up."
+            echo "           You can also sign in right here on this console."
+        else
+            echo "           Here on this console, or over ssh:"
+            for a in "${addrs[@]}"; do
+                echo "             ssh luke@${a}"
+            done
+        fi
+    fi
+}
 
 {
     echo
@@ -32,6 +113,15 @@ staged_ver=$(bootc status --json 2>/dev/null | jq -r '.status.staged.image.versi
         files=$(jq -r '.data_files' "$LUKE_STATE_DIR/reset-proof.json")
         echo "  Factory reset complete. Your data survived: /data ${size} (${files} files)."
         rm -f "$LUKE_STATE_DIR/reset-proof.json"
+    fi
+
+    if setup_pending; then
+        setup_block
+    else
+        # Setup is done (or was never pending): the token is spent. Nothing
+        # is gained by keeping a stale secret on disk, and printing it after
+        # the password changed would be a lie.
+        rm -f "$LUKE_SETUP_TOKEN"
     fi
 
     echo "  Version: ${booted_ver}$( [ -n "$staged_ver" ] && echo "  (staged: ${staged_ver}, applies on reboot)" )"

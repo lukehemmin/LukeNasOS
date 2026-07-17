@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# NetworkManager dispatcher hook: re-render the console banner when the
+# machine's addresses change.
+#
+# The banner is the appliance's home screen, and on a fresh machine it is the
+# ONLY place the setup address and token appear. A NAS that boots before its
+# DHCP lease arrives would otherwise print "no network address yet" and sit
+# there lying about it for the rest of the boot — the banner promises "this
+# screen updates itself", so it has to.
+#
+# $1 = interface, $2 = action. Fires for the events that can change what the
+# banner prints; anything else is ignored (dispatcher scripts run often).
+#
+# The banner unit is Type=oneshot RemainAfterExit=yes: `start` on an already
+# active unit is a no-op, so this restarts it. --no-block because a dispatcher
+# script must not wait on systemd.
+
+case "${2:-}" in
+    up|down|dhcp4-change|dhcp6-change|connectivity-change)
+        systemctl restart --no-block lukenasos-banner.service
+        ;;
+esac
+
+exit 0
