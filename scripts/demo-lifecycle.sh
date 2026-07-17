@@ -258,6 +258,36 @@ assert_eq() {
     echo "   ok: $what = $got"
 }
 
+# assert_json WHAT FIELD WANT -- COMMAND...
+#
+# `assert_eq "x" "staged" "$(vm_root luke update --json | jq -r .result)"` reports
+# `got 'null'` and throws the reason away — and `null` is exactly what a luke
+# error looks like through that jq filter, because errors are {error:{...}} and
+# have no .result. Twice today that cost a 10-minute reinstall to learn what the
+# machine had already said. A failing test that cannot say why is half a test.
+assert_json() {
+    local what="$1" field="$2" want="$3"; shift 3
+    [ "${1:-}" = "--" ] && shift
+    local out got
+    out=$(vm_root "$@" 2>&1) || true
+    got=$(printf '%s' "$out" | jq -r "$field" 2>/dev/null) || got="<not json>"
+    if [ "$want" != "$got" ]; then
+        {
+            echo "ASSERT FAIL: $what — want '$want', got '$got'"
+            echo "   ran: $*"
+            echo "   it said:"
+            printf '%s\n' "$out" | sed 's/^/     /'
+            echo "   --- and the journal the error points at ---"
+            vm_root journalctl -u lukenasos-update --no-pager -n 25 2>&1 | sed 's/^/     /' || true
+            echo "   --- bootc, which every luke verb stands on ---"
+            vm_root bootc --version 2>&1 | sed 's/^/     /' || true
+            vm_root bootc status --json 2>&1 | head -c 600 | sed 's/^/     /' || true
+        } >&2
+        exit 1
+    fi
+    echo "   ok: $what = $got"
+}
+
 # ── lifecycle phases ──────────────────────────────────────────────────────
 
 phase_1_fresh_boot() {
@@ -289,7 +319,7 @@ phase_1_fresh_boot() {
 
 phase_2_stage_update() {
     say "phase 2: update stages v2, nothing reboots"
-    assert_eq "update result" "staged" "$(vm_root luke update --json | jq -r .result)"
+    assert_json "update result" .result staged -- luke update --json
     assert_eq "still booted" "v1" "$(vm_root luke status --json | jq -r .booted)"
     # 77 when already staged/current
     local rc=0; vm_root luke update --json >/dev/null 2>&1 || rc=$?
