@@ -307,11 +307,22 @@ phase_1_fresh_boot() {
     # in a restart storm. A fresh install that cannot survive its own health
     # check is not a fresh install that booted OK.
     say "phase 1b: the boot survives its own health check"
-    if ! vm_root systemctl is-active --quiet greenboot-healthcheck.service; then
-        vm_root timeout 300 systemctl start greenboot-healthcheck.service >/dev/null 2>&1 || true
-    fi
-    assert_eq "greenboot verdict" "active" \
-        "$(vm_root systemctl is-active greenboot-healthcheck.service 2>/dev/null || echo failed)"
+    # greenboot has not reached a verdict when ssh first answers, and on a first
+    # boot it legitimately takes minutes: 10-core-services waits for units to
+    # converge, and the Samba quadlet may still be pulling its image. Asking too
+    # early gets 'activating', which is neither a pass nor a failure — so wait
+    # for a terminal state and then judge.
+    #
+    # (`is-active` exits non-zero for 'activating', so `|| echo failed` used to
+    # append a SECOND line and the assert reported the nonsense 'activating
+    # failed'. `|| true` keeps the word without inventing one.)
+    local gb=""
+    for _ in $(seq 1 "${GREENBOOT_SETTLE_TRIES:-180}"); do
+        gb=$(vm_root systemctl is-active greenboot-healthcheck.service 2>/dev/null || true)
+        case "$gb" in active|failed) break ;; esac
+        sleep 5
+    done
+    assert_eq "greenboot verdict" "active" "$gb"
     # Nothing in the rig may be sitting in `failed`: the core-services check
     # fails the instant it sees one, and a red boot on a fresh install means a
     # reboot loop with no rollback target to escape to.
