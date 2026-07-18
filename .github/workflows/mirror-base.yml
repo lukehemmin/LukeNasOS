@@ -1,0 +1,67 @@
+# Mirror the upstream base into a registry we control, digest-preserving.
+#
+# Why this exists (TODOS 2026-07-17, "the digest pin does not pin anything"):
+# quay.io/fedora/fedora-bootc deletes a manifest the moment its tag moves off
+# it — measured at 27 minutes from tag move to "manifest unknown" — so a
+# digest pin against quay is a record of what we built, never a guarantee we
+# can build it again. An OS that promises safe updates cannot itself update
+# from a mutable tag, and it cannot pin to a registry that erases history.
+#
+# The mirror closes both halves: the Containerfile pins
+# ghcr.io/<owner>/fedora-bootc-mirror@sha256:… and that digest stays
+# fetchable for as long as we keep it — every mirrored digest also gets a
+# dated tag, because an UNtagged manifest is the thing registries feel free
+# to garbage-collect, and "pinned but collectable" is the exact bug this
+# file exists to end.
+#
+# Runs an hour before scheduled-rebuild on the same Mondays, so the rebuild
+# always has a fresh mirrored digest to build against; run it by hand when a
+# base bump is wanted sooner.
+name: mirror-base
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # Mondays 03:17 UTC — scheduled-rebuild follows at 04:17
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Mirror the base, digest-preserving
+        run: |
+          SRC=quay.io/fedora/fedora-bootc:44
+          DST=ghcr.io/${{ github.repository_owner }}/fedora-bootc-mirror
+          digest=$(skopeo inspect --no-tags --format '{{.Digest}}' "docker://$SRC")
+          echo "upstream $SRC is at $digest"
+          # --all: the whole multi-arch manifest list, not one platform.
+          # --preserve-digests: fail rather than mirror something whose digest
+          # silently changed in transit — the digest IS the artifact here.
+          skopeo copy --all --preserve-digests "docker://$SRC" "docker://$DST:44"
+          # The dated tag is the anti-GC anchor: it keeps this digest tagged
+          # forever, so the pin in the Containerfile can never dangle.
+          skopeo copy --all --preserve-digests "docker://$SRC" "docker://$DST:44-$(date -u +%Y%m%d)"
+          {
+            echo "## Base mirrored"
+            echo ""
+            echo "Pin line for the Containerfile:"
+            echo ""
+            echo '```'
+            echo "ARG BASE_IMAGE=$DST@$digest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "MIRRORED: $DST@$digest"
+
+      - name: The mirror answers by digest (the whole point)
+        run: |
+          DST=ghcr.io/${{ github.repository_owner }}/fedora-bootc-mirror
+          digest=$(skopeo inspect --no-tags --format '{{.Digest}}' "docker://$DST:44")
+          skopeo inspect --no-tags "docker://$DST@$digest" >/dev/null
+          echo "verified: $DST@$digest is fetchable by digest"
