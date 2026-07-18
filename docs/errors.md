@@ -106,6 +106,18 @@ harnesses may pass `--yes-i-typed-the-hostname`.
 **Fix:** `journalctl -b`; if the ostree repo itself is damaged, the `@seed`
 recovery archive is the fallback: see `docs/exit-plan.md`.
 
+## LUKE-E044 — could not carry /etc/fstab into the reset deployment
+
+Factory reset gives the new deployment a genuinely fresh `/etc` — but the
+mount table (`fstab`) describes the disk, not the configuration, and rides
+across (like the kernel arguments). This error means that copy failed, most
+often because `/sysroot` could not be remounted writable. The reset
+deployment is staged but incomplete: booting it would leave `/boot` unmounted
+and half the OS tooling failing.
+
+**Fix:** re-run `luke factory-reset` (it stages a fresh deployment), then
+`luke doctor` if it repeats.
+
 ## LUKE-E050 — grubenv is not usable
 
 greenboot's automatic rollback decrements a boot counter in

@@ -135,11 +135,27 @@ ostree admin deploy --no-merge --karg-proc-cmdline --stateroot="$stateroot" --re
 new_dep_dir=$(ls -d "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*/ 2>/dev/null \
     | sed 's:/*$::' | awk -F. '{print $NF, $0}' | sort -n | awk 'END {print $2}')
 if [ -n "$new_dep_dir" ]; then
+    # /sysroot is mounted read-only on bootc systems: nothing is supposed to
+    # edit a deployment from outside, and this copy is the one sanctioned
+    # exception — so it does what ostree itself does, remounts rw for exactly
+    # as long as it writes, and puts it back. Written via /sysroot, not
+    # /ostree: they are separate mounts of the same tree, and only this one
+    # is being made writable.
+    remounted=0
+    if findmnt -no OPTIONS /sysroot 2>/dev/null | grep -qw ro; then
+        mount -o remount,rw /sysroot && remounted=1
+    fi
     for f in fstab crypttab; do
         if [ -f "/etc/$f" ]; then
-            cp -a "/etc/$f" "$new_dep_dir/etc/$f"
+            cp -a "/etc/$f" "/sysroot$new_dep_dir/etc/$f" || die "$EXIT_ERROR" LUKE-E044 \
+                "could not carry /etc/$f into the reset deployment" \
+                "without the mount table, the reset boot never mounts /boot and half the OS tooling fails" \
+                "re-run luke factory-reset; luke doctor if it repeats"
         fi
     done
+    if [ "$remounted" = 1 ]; then
+        mount -o remount,ro /sysroot 2>/dev/null || true
+    fi
 fi
 
 # Clear app/OS machine state but keep the ostree repo, the event journal,
