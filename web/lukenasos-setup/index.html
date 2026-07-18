@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<!--
+  LukeNasOS first-boot wizard — step 1: "Name your NAS and your account".
+
+  This page is a view over `luke setup` and nothing more: every mutating
+  action is a `luke` verb spawned with superuser (SPEC §6 — one audited
+  privileged surface, three front ends). There are no password fields on
+  purpose: the password chosen at the PAM forced change follows the user to
+  their new account (design decision 4.1A), so nobody types a third password
+  on a phone.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Set up — LukeNasOS</title>
+    <link rel="stylesheet" href="setup.css">
+    <script src="../base1/cockpit.js"></script>
+    <script src="setup.js" defer></script>
+</head>
+<body>
+<main class="wizard">
+    <header class="wordmark">
+        <h1>LukeNasOS</h1>
+        <p class="pills" id="pills">
+            <span class="pill current">1 · Account</span><span class="pill">2 · Network</span><span class="pill">3 · First share</span><span class="pill">4 · Done</span>
+        </p>
+        <p class="pills-compact">Step 1 of 4 — Account</p>
+    </header>
+
+    <!-- Shown until `luke setup status` has answered. -->
+    <section id="view-loading" class="card">
+        <p class="muted">Reading this machine&rsquo;s setup state&hellip;</p>
+    </section>
+
+    <!-- The superuser bridge is not available: name the fix, never dead-end. -->
+    <section id="view-noadmin" class="card" hidden>
+        <h2>Administrative access is needed</h2>
+        <p>The wizard sets up this machine through <code>luke setup</code>, which
+           needs administrative access. Click <strong>Limited access</strong> in
+           the top bar and turn on administrative access, then
+           <a href="#" id="retry">try again</a>.</p>
+        <p class="muted" id="noadmin-detail"></p>
+    </section>
+
+    <!-- Step 1 proper. -->
+    <section id="view-form" class="card" hidden>
+        <h2>Name your NAS and your account</h2>
+        <p class="muted">The password you just chose stays with you — it follows
+           you to your new account, so there is nothing more to type.</p>
+
+        <form id="step1" novalidate>
+            <label for="nas-name">What should this NAS be called on your network?</label>
+            <input id="nas-name" name="nas-name" type="text" value="luke-nas"
+                   autocapitalize="off" autocomplete="off" spellcheck="false"
+                   pattern="[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?">
+            <p class="field-error" id="err-nas" hidden></p>
+
+            <label for="account-name">And what is your name here?</label>
+            <input id="account-name" name="account-name" type="text"
+                   placeholder="e.g. the name you sign in with everywhere"
+                   autocapitalize="off" autocomplete="username" spellcheck="false"
+                   pattern="[a-z_][a-z0-9_-]{0,31}">
+            <p class="field-error" id="err-account" hidden></p>
+
+            <p class="field-error" id="err-global" hidden></p>
+
+            <button type="submit" id="submit">
+                <span id="submit-label">Create my account</span>
+                <span id="submit-spinner" class="spinner" hidden></span>
+            </button>
+        </form>
+    </section>
+
+    <!-- Step 1 already happened (this run, an earlier run, or an interactive
+         install that made a wheel account) — never show a form that was
+         already submitted. -->
+    <section id="view-done" class="card" hidden>
+        <h2>This machine is set up</h2>
+        <dl class="facts">
+            <dt>NAS name</dt><dd id="done-hostname">—</dd>
+            <dt>Administrator</dt><dd id="done-user">—</dd>
+            <dt>Shares</dt><dd id="done-shares">none yet</dd>
+        </dl>
+        <p class="muted" id="done-next">The next wizard steps (network and your
+           first share) are on their way. Until they land, a share is one
+           command over ssh:
+           <code>printf '%s' 'your password' | sudo luke setup share --name family --user you --password-stdin</code></p>
+    </section>
+</main>
+
+<!-- The sign-out interstitial (design finding 3.2, CRITICAL): retiring the
+     setup account ends this session on the user's FIRST action, and a silent
+     disconnect reads as a crash. This renders full-screen BEFORE
+     loginctl terminate-user runs, and the login screen is the next thing
+     they see. -->
+<div id="interstitial" class="interstitial" hidden>
+    <div class="interstitial-card">
+        <h2>Your account <strong id="inter-name">—</strong> is ready</h2>
+        <p>For security, the setup account is being signed out.</p>
+        <p>Sign back in as <strong id="inter-name2">—</strong> with the
+           password you just chose.</p>
+        <p class="muted">Signing out in <span id="inter-count">5</span>&hellip;</p>
+    </div>
+</div>
+</body>
+</html>

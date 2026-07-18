@@ -571,6 +571,26 @@ phase_1c_setup() {
         "$(vm_root sh -c "'wc -l < /usr/share/lukenasos/cockpit-hidden-pages'")" \
         "$(vm_root sh -c "'ls /etc/cockpit/*.override.json | wc -l'")"
 
+    # The wizard itself is served to a signed-in user. This is the no-browser
+    # version of "the plugin exists": cockpit's own login endpoint takes the
+    # owner's PAM credentials, and the session cookie fetches the plugin the
+    # way the shell would. A browser E2E owns the rest (form, interstitial).
+    local jar
+    jar=$(mktemp)
+    curl -ksf -c "$jar" -u "$SETUP_USER:$SETUP_PASSWORD" \
+        "https://localhost:$COCKPIT_PORT/cockpit/login" >/dev/null \
+        || { echo "ASSERT FAIL: cockpit login refused the owner's credentials" >&2
+             rm -f "$jar"; exit 1; }
+    assert_eq "the wizard is served to a signed-in owner" "1" \
+        "$(curl -ksf -b "$jar" \
+            "https://localhost:$COCKPIT_PORT/cockpit/@localhost/lukenasos-setup/index.html" \
+            | grep -c "Name your NAS" || true)"
+    rm -f "$jar"
+
+    # The wizard's bookmark round-trips: what stamp writes, status hands back.
+    assert_json "stamp result" .result stamped -- luke setup stamp --step 2 --json
+    assert_json "status carries the bookmark" .wizard.step 2 -- luke setup status --json
+
     # The escape hatch, on the record: unlock reveals, the event says so, and
     # a second unlock is nothing-to-do. Phase 5 then asserts the factory reset
     # takes the unlock back — locked is the factory state.
@@ -877,6 +897,21 @@ verify_static() {
     # the new administrator the setup token as a password, retiring the account
     # that still works — are not ones they can undo from the couch.
     "$REPO_ROOT/tests/setup-verbs.sh"
+
+    # The wizard plugin. A broken manifest is a Cockpit page that silently
+    # never appears; jq is the parser CI already has. The grep is SPEC §6's
+    # privilege model as a tripwire: the plugin renders luke output and spawns
+    # luke verbs (plus the one loginctl the design names) — the day useradd or
+    # smbpasswd appears in the browser's half, the "one audited privileged
+    # surface" sentence has quietly stopped being true.
+    jq empty "$REPO_ROOT"/web/lukenasos-setup/manifest.json \
+        || { echo "web/lukenasos-setup/manifest.json does not parse" >&2; return 1; }
+    # Quoted, because that is the shape of a spawn argument — and because the
+    # plugin's own comments state the rule in prose, which must not trip it.
+    if grep -rnE '"(useradd|smbpasswd|chpasswd|usermod|nft)"' "$REPO_ROOT/web/"; then
+        echo "the wizard must call luke verbs, never system tools (SPEC §6)" >&2
+        return 1
+    fi
 
     # The firewall policy is loaded by nftables.service at boot; a typo means
     # a machine that boots with no filter at all, which is exactly the hole

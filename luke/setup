@@ -39,6 +39,8 @@ Usage: luke setup <what> [options]
                                installer's default account
   share    --name <share> --user <user> --password-stdin
                                Create the first file share and open SMB for it
+  stamp    --step <2|3|4|done> Record where the wizard's user is, so a signed-out
+                               browser resumes at the right step
 
 Every subcommand accepts --json. Exit codes: 0 ok, 1 error, 2 usage,
 77 nothing to do.
@@ -196,22 +198,27 @@ EOF
 # ── luke setup status ─────────────────────────────────────────────────────
 
 do_status() {
-    local admin hostname_set shares_json admin_json
+    local admin hostname_set shares_json admin_json stamp
     local -a sh_list
     admin=$(system_admin || true)
     hostname_set=$(cat "$LUKE_CAPSULE/hostname" 2>/dev/null || true)
     mapfile -t sh_list < <(capsule_shares)
     shares_json=$(printf '%s\n' "${sh_list[@]+"${sh_list[@]}"}" | jq -Rn '[inputs | select(length > 0)]')
+    # The wizard's bookmark (see do_stamp): where the USER was, which "what is
+    # done" cannot derive — step 1 ends by signing the browser out.
+    stamp=$(cat "$LUKE_STATE_DIR/wizard-step" 2>/dev/null || true)
 
     if [ "$JSON" = 1 ]; then
         admin_json=$( [ -n "$admin" ] && json_escape "$admin" || echo null )
         jq -n --argjson user "$admin_json" \
               --arg hn "$hostname_set" \
+              --arg stamp "$stamp" \
               --argjson shares "$shares_json" \
             '{
                account:  {done: ($user != null), user: $user},
                hostname: {done: ($hn != ""), value: (if $hn == "" then null else $hn end)},
                share:    {done: ($shares | length > 0), shares: $shares},
+               wizard:   {step: (if $stamp == "" then null else $stamp end)},
                complete: (($user != null) and ($hn != "") and ($shares | length > 0))
              }'
     else
@@ -549,6 +556,37 @@ do_share() {
     fi
 }
 
+# ── luke setup stamp ──────────────────────────────────────────────────────
+# The wizard's bookmark. `luke setup status` derives what is DONE, but not
+# where the USER was: step 1 ends by signing the browser out (the installer
+# account is retired under the live session), and without this the re-login
+# would land the owner back on a form they already submitted. It is a verb
+# rather than a file the plugin writes itself because the plugin writes
+# nothing itself — one audited privileged surface (SPEC §6).
+#
+# In /var/lib/lukenasos (machine-local state), NOT the capsule: a factory
+# reset that re-runs the wizard is correct behavior, and a bookmark is not
+# identity.
+
+do_stamp() {
+    local step="$1"
+    case "$step" in
+        2|3|4|done) ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "luke setup stamp needs a step" \
+             "--step takes 2, 3, 4 or done — step 1 needs no stamp; a fresh machine is step 1" \
+             "luke setup stamp --step 2" ;;
+    esac
+    require_root "setup stamp"
+    mkdir -p "$LUKE_STATE_DIR"
+    printf '%s\n' "$step" > "$LUKE_STATE_DIR/wizard-step"
+    persist "$LUKE_STATE_DIR/wizard-step"
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg s "$step" '{result: "stamped", step: $s}'
+    else
+        echo "${C_OK}${SYM_OK}${C_OFF} Wizard bookmark set: step $step."
+    fi
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────
 
 what="${1:-}"
@@ -557,13 +595,14 @@ shift
 
 parse_common_flags "$@"
 
-name="" user="" pw_stdin=0
+name="" user="" pw_stdin=0 step=""
 args=("${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}")
 i=0
 while [ "$i" -lt "${#args[@]}" ]; do
     case "${args[$i]}" in
         --name) i=$((i+1)); name="${args[$i]:-}" ;;
         --user) i=$((i+1)); user="${args[$i]:-}" ;;
+        --step) i=$((i+1)); step="${args[$i]:-}" ;;
         --password-stdin) pw_stdin=1 ;;
         *) die "$EXIT_USAGE" LUKE-E002 "unknown option '${args[$i]}'" \
              "luke setup $what does not take that" "luke setup --help" ;;
@@ -576,6 +615,7 @@ case "$what" in
     hostname) do_hostname "$name" ;;
     account)  do_account "$name" ;;
     share)    do_share "$name" "$user" "$pw_stdin" ;;
+    stamp)    do_stamp "$step" ;;
     -h|--help|help) usage ;;
     *)
         echo "luke setup: unknown subcommand '$what'" >&2

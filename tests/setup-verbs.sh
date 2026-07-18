@@ -476,6 +476,35 @@ if [ "$RC" = 0 ] && ! called useradd && ! called hostnamectl; then
 else bad "a normal boot: converged already, so it does nothing"; fi
 
 echo
+echo "== setup stamp: the wizard's bookmark =="
+
+# Step 1 ends by signing the browser out; the stamp is how the re-login lands
+# on step 2 instead of a form that was already submitted.
+machine
+run stamp --step 2 --json
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | jq -e '.result == "stamped"' >/dev/null 2>&1 \
+   && [ "$(cat "$WORK/m/state/wizard-step")" = 2 ]; then
+    ok "stamps where the user was, in machine-local state"
+else bad "stamps where the user was, in machine-local state"; fi
+
+run status --json
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | jq -e '.wizard.step == "2"' >/dev/null 2>&1; then
+    ok "status hands the bookmark back to the resuming wizard"
+else bad "status hands the bookmark back to the resuming wizard"; fi
+
+# A stamp is a bookmark, not identity: it lives in /var/lib (erased by a
+# factory reset, correctly — a reset machine re-runs the wizard), never in
+# the capsule.
+if [ ! -e "$WORK/m/capsule/wizard-step" ]; then
+    ok "the bookmark stays out of the identity capsule"
+else bad "the bookmark stays out of the identity capsule"; fi
+
+run stamp --step 9 --json
+if [ "$RC" = 2 ] && printf '%s' "$OUT" | jq -e '.error.code == "LUKE-E002"' >/dev/null 2>&1; then
+    ok "a step that does not exist is refused as usage, with the accepted values named"
+else bad "a step that does not exist is refused as usage, with the accepted values named"; fi
+
+echo
 echo "== unlock-console: the machine room's door, on the record =="
 
 # A locked machine, the way the image ships one: the page list plus one

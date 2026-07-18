@@ -102,6 +102,14 @@ RUN printf '%s\n' systemd users metrics networkmanager storaged \
                > "/etc/cockpit/$p.override.json"; \
        done < /usr/share/lukenasos/cockpit-hidden-pages
 
+# ── the first-boot wizard (Cockpit plugin) ───────────────────────────────
+# Step 1 of the setup flow (SPEC §6): a static page over `luke setup` — it
+# renders luke output and spawns luke verbs, never useradd/nft/smbpasswd.
+# With the stock pages hidden above, this is the only menu entry a fresh
+# machine shows, which makes it the landing page without any shell
+# configuration.
+COPY web/lukenasos-setup/ /usr/share/cockpit/lukenasos-setup/
+
 # ── the ssh door policy ───────────────────────────────────────────────────
 # Deliberate, not inherited. SPEC §9 claimed passwords over ssh were refused
 # while the console banner told a new owner to type the setup token at an ssh
