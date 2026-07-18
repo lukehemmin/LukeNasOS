@@ -61,6 +61,11 @@ jobs:
           esac
           curl -fsSL -o cosign "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-${coarch}"
           chmod +x cosign
+          # cosign is a standalone binary: it reads docker's config, not
+          # podman's auth file, so the job's earlier `podman login` means
+          # nothing to it — the signature blob upload came back UNAUTHORIZED
+          # (attempt two's lesson). It logs in for itself.
+          echo "${{ secrets.GITHUB_TOKEN }}" | ./cosign login ghcr.io -u ${{ github.actor }} --password-stdin
           digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:${{ github.ref_name }}-${{ matrix.target }}")
           ./cosign sign --yes "$IMAGE@$digest"
 
