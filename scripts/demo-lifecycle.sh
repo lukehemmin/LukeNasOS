@@ -152,8 +152,11 @@ echo 'luke ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/luke-test
 chmod 0440 /etc/sudoers.d/luke-test
 # TCG-emulated test hosts start containers an order of magnitude slower
 # than any real machine; stretch the Samba health-check grace accordingly.
-mkdir -p /etc/lukenasos
-printf 'SAMBA_GRACE_SECONDS=900\nCORE_GRACE_SECONDS=900\n' > /etc/lukenasos/health.conf
+# In /var/lib, not /etc: the grace is a property of this (slow) machine, and
+# a factory reset clears /etc for real — the reset's own first boot re-pulls
+# the Samba image and must still be judged by this machine's clock.
+mkdir -p /var/lib/lukenasos
+printf 'SAMBA_GRACE_SECONDS=900\nCORE_GRACE_SECONDS=900\n' > /var/lib/lukenasos/health.conf
 # Point updates at the host's local registry (10.0.2.2 = QEMU user-net host)
 sed -i 's|IMAGE_REF=.*|IMAGE_REF=10.0.2.2:5000/lukenasos:v2|' /etc/lukenasos/luke.conf
 echo '[[registry]]
@@ -812,8 +815,24 @@ phase_5_factory_reset() {
     # success — SPEC §5.2's broken promise in its most literal form.
     assert_eq "the administrator survived, with the same uid" "$uid_before" \
         "$(vm_root id -u "$SETUP_USER")"
-    assert_eq "the installer account is retired again" "L" \
-        "$(vm_root passwd -S luke | awk '{print $2}')"
+    # A genuinely fresh /etc has no 'luke' AT ALL — anaconda created it, not
+    # the image — so absent is the expected shape after a reset, and locked is
+    # the expected shape after a REINSTALL over surviving /data (the case
+    # identity-apply's re-retirement exists for). Both mean the same thing:
+    # the token-era door cannot reopen. Unlocked means it can, and fails.
+    local luke_after
+    luke_after=$(vm_root passwd -S luke 2>&1 | awk '/^luke/ {print $2}')
+    case "$luke_after" in
+        ""|L) echo "   ok: the installer account cannot come back (state: ${luke_after:-absent})" ;;
+        *) echo "ASSERT FAIL: the installer account survived the reset as '$luke_after'" >&2
+           exit 1 ;;
+    esac
+
+    # The wizard's bookmark must not survive either: a reset machine re-runs
+    # the wizard, and a stale bookmark would resume its owner into the middle
+    # of a setup flow for a machine that no longer is set up.
+    assert_json "the wizard bookmark did not survive the reset" .wizard.step null -- \
+        luke setup status --json
     assert_eq "the NAS remembers its name" "$SETUP_HOSTNAME" "$(vm_root cat /etc/hostname)"
 
     # The reset must not make ssh accuse the machine of being an impostor. This

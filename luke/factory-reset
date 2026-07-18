@@ -76,9 +76,16 @@ cp -a /etc/ssh/ssh_host_*_key* "$CAPSULE/"     2>/dev/null || true
 cp -a /etc/samba/smb.conf "$CAPSULE/"          2>/dev/null || true
 event_log factory-reset-started "$(jq -cn --arg size "$data_size" '{data: $size}')"
 
-# Redeploy the pinned commit. `ostree admin deploy` of the pinned checksum
-# creates a fresh deployment (fresh /etc from the commit's defaults);
-# machine state under /var/lib is cleared selectively below.
+# Redeploy the pinned commit — with --no-merge, which is what makes "cleared:
+# OS config" true. Without it, `ostree admin deploy` 3-way merges /etc from
+# the booted deployment into the new one ("Copying /etc changes: 13 modified,
+# 11 removed, 40 added" in the deploy output was the confession): accounts,
+# lock states, added and DELETED files all rode across, and this comment used
+# to claim "fresh /etc from the commit's defaults" over a command that did no
+# such thing. Caught by the lifecycle asserting an unlocked console re-locks
+# after reset — the deleted override files' deletion was faithfully merged
+# into the "fresh" /etc. Machine state under /var/lib is cleared selectively
+# below.
 # Parse by shape, not position: the checksum is the only 64-hex token (with
 # a .N deploy serial) on a deployment line, and "Pinned: yes" refers to the
 # deployment line most recently seen above it. A positional parse here once
@@ -103,7 +110,7 @@ origin_args=()
 pinned_origin=$(ls "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*.origin 2>/dev/null | head -1)
 [ -n "$pinned_origin" ] && origin_args=(--origin-file "$pinned_origin")
 
-ostree admin deploy --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
+ostree admin deploy --no-merge --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
     || die "$EXIT_ERROR" LUKE-E043 \
         "deploying the pinned install image failed" \
         "see: journalctl -b" \
@@ -119,6 +126,11 @@ rm -rf /var/lib/containers/storage 2>/dev/null || true
 # history stays in the event journal.
 rm -f "$LUKE_ROLLBACK_CAUSE" "$LUKE_STATE_DIR/recovered-acked" \
       "$LUKE_EXPECTED" "$LUKE_STATE_DIR/pending-rollback.json"
+# The wizard's bookmark too: a reset machine re-runs the wizard, and a
+# surviving bookmark would resume its owner into the middle of a setup flow
+# for a machine that no longer is set up. (It lives in /var/lib, which this
+# verb clears selectively — so "selectively" has to remember it.)
+rm -f "$LUKE_STATE_DIR/wizard-step"
 
 event_log factory-reset-deployed "$(jq -cn --arg cs "$pinned_checksum" '{checksum: $cs}')"
 # The first boot after reset shows "your data survived" with the size —

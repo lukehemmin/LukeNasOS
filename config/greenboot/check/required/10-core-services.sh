@@ -12,11 +12,18 @@
 set -o nounset
 
 # Grace windows are machine-tunable: container/unit start times vary by an
-# order of magnitude between real hardware and emulated test hosts.
+# order of magnitude between real hardware and emulated test hosts. The
+# /var/lib location is the one that matters: a grace window is a property of
+# the HARDWARE, and a factory reset — which genuinely clears /etc now — must
+# not reset the machine's idea of how slow it is. The first boot after a
+# reset re-pulls the Samba image; judging it by a deadline this machine never
+# met would turn the reset itself into a rollback storm.
 CORE_GRACE_SECONDS=300
 SAMBA_GRACE_SECONDS=300
 # shellcheck disable=SC1091
 [ -f /etc/lukenasos/health.conf ] && . /etc/lukenasos/health.conf
+# shellcheck disable=SC1091
+[ -f /var/lib/lukenasos/health.conf ] && . /var/lib/lukenasos/health.conf
 
 wait_active() {
     # wait_active UNIT GRACE — 0 when the unit becomes active within GRACE;
