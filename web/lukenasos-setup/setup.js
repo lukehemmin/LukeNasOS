@@ -125,19 +125,54 @@ function pollStrip() {
 
 /* ── routing ─────────────────────────────────────────────────────────── */
 
+/* Where the LAN finds this machine — the same source the console banner
+ * reads. Falls back to the address the browser itself used, which is by
+ * definition one that works from that browser. */
+function fetchAddress() {
+    return cockpit.spawn(["ip", "-j", "-4", "addr", "show", "scope", "global", "up"],
+                         { err: "message" })
+        .then((out) => {
+            const ifaces = JSON.parse(out).filter((i) => (i.addr_info || []).length);
+            if (ifaces.length)
+                state.address = ifaces[0].addr_info[0].local;
+        })
+        .catch(() => { /* the fallback covers it */ });
+}
+
+/* The landing page: with the stock pages hidden (SPEC §6), this is what
+ * :9090 is once setup is done — facts, shares with the addresses that open
+ * them, and the strip above. */
+function renderLanding(status) {
+    const host = state.address || window.location.hostname;
+    const nas = (status.hostname && status.hostname.value) || null;
+    if (nas)
+        $("done-title").textContent = nas + " is ready";
+    $("done-hostname").textContent = nas || "not chosen yet";
+    $("done-user").textContent = state.user || "—";
+    const shares = (status.share && status.share.shares) || [];
+    if (shares.length) {
+        $("done-share-list").innerHTML = shares.map((s) => {
+            const el = document.createElement("li");
+            el.textContent = s + " — ";
+            const code = document.createElement("code");
+            code.textContent = "smb://" + host + "/" + s;
+            el.appendChild(code);
+            return el.outerHTML;
+        }).join("");
+    }
+    luke(["status"])
+        .then((st) => { $("done-version").textContent = st.booted || "—"; })
+        .catch(() => { /* the strip poll reports OS state on its own */ });
+    show("view-done");
+}
+
 function route(status) {
     state.user = (status.account && status.account.user) || null;
     const shares = (status.share && status.share.shares) || [];
     state.share = shares[0] || null;
 
     if (status.complete) {
-        $("done-hostname").textContent =
-            (status.hostname && status.hostname.value) || "not chosen yet";
-        $("done-user").textContent = state.user || "—";
-        $("done-shares").textContent = shares.join(", ");
-        $("done-mount").textContent =
-            "smb://" + (state.address || window.location.hostname) + "/" + state.share;
-        show("view-done");
+        fetchAddress().then(() => renderLanding(status));
         return;
     }
 

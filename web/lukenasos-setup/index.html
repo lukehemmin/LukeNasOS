@@ -159,16 +159,26 @@
         </form>
     </section>
 
-    <!-- Setup is complete (this run or an earlier one): facts, not a form. -->
+    <!-- Setup is complete (this run or an earlier one): the landing page.
+         The stock pages are hidden (SPEC §6), so this is what :9090 IS after
+         setup — the health strip above, the machine's facts, and every share
+         with the address that opens it. The seed of the timeline dashboard,
+         not a placeholder. -->
     <section id="view-done" class="card" hidden>
-        <h2>This machine is set up</h2>
+        <h2 id="done-title">This NAS is set up</h2>
         <dl class="facts">
             <dt>NAS name</dt><dd id="done-hostname">—</dd>
             <dt>Administrator</dt><dd id="done-user">—</dd>
-            <dt>Shares</dt><dd id="done-shares">none yet</dd>
+            <dt>OS version</dt><dd id="done-version">—</dd>
         </dl>
-        <p class="muted">Open a share as on the Done screen: <code id="done-mount">smb://…</code>
-           — sign in with the same name and password you use here.</p>
+        <h3>Shares</h3>
+        <ul class="share-list" id="done-share-list">
+            <li class="muted">none yet — make one over ssh with
+                <code>luke setup share</code></li>
+        </ul>
+        <p class="muted">Open a share with the same name and password you sign
+           in with here. Updates and recovery live in the <code>luke</code>
+           command over ssh until the dashboard lands.</p>
     </section>
 </main>
 

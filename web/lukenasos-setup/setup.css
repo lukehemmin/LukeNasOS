@@ -213,6 +213,10 @@ button[type="submit"]:disabled { opacity: 0.6; cursor: default; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; }
 
+.card h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; }
+.share-list { margin: 0; padding-left: 1.25rem; }
+.share-list li { margin: 0.25rem 0; }
+
 .interstitial {
     position: fixed;
     inset: 0;
