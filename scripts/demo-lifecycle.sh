@@ -12,6 +12,9 @@
 #      /data is still there and readable through the Samba share
 #   6. power cut during staging, and after staging before finalize →
 #      the machine boots and luke status explains what happened
+#   7. the same disk boots on hardware it has never seen (i440fx + e1000
+#      instead of q35 + virtio) and is still the same NAS — name, uid,
+#      data, and the share served through the firewall
 #
 # Runs against a LOCAL registry (localhost:5000), never GHCR: unpublished
 # commits must be testable, and signature rejection is only reproducible
@@ -171,14 +174,23 @@ EOF
 }
 
 qemu_common_args() {
-    local args="-machine q35 -cpu max -m $QEMU_RAM -smp 2"
+    # PORTABILITY_HW=1 is phase 7's other computer: an i440fx board with an
+    # Intel e1000 NIC instead of q35 with virtio — the SPEC §5.2 claim is that
+    # the disk IS the NAS, and that is only testable on hardware the machine
+    # has never seen. The disk stays virtio: swapping the disk bus tests the
+    # initramfs's driver inventory, which is Fedora's promise, not ours.
+    local machine=q35 nic=virtio-net-pci
+    if [ "${PORTABILITY_HW:-0}" = 1 ]; then
+        machine=pc nic=e1000
+    fi
+    local args="-machine $machine -cpu max -m $QEMU_RAM -smp 2"
     if [ "$FIRMWARE" = uefi ]; then
         # shellcheck disable=SC2012
         args="$args -drive if=pflash,format=raw,readonly=on,file=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE*.fd 2>/dev/null | head -1)"
     fi
     args="$args -drive file=$DISK,format=qcow2,if=virtio"
     [ -n "$EXTRA_DISK" ] && args="$args -drive file=$EXTRA_DISK,format=qcow2,if=virtio"
-    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$SMB_PORT-:445,hostfwd=tcp::$COCKPIT_PORT-:9090 -device virtio-net-pci,netdev=n0"
+    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$SMB_PORT-:445,hostfwd=tcp::$COCKPIT_PORT-:9090 -device $nic,netdev=n0"
     args="$args -display none -serial $QEMU_SERIAL"
     echo "$args"
     if [ -e /dev/kvm ]; then echo "-enable-kvm"; fi
@@ -1002,6 +1014,30 @@ verify_static() {
     echo "static checks passed"
 }
 
+# SPEC §5.2's boldest sentence made testable: the disk IS the NAS. Pull the
+# drive out of the machine it has always lived in (q35, virtio NIC) and put
+# it in one it has never seen (i440fx, e1000) — the identity has to come back
+# from /data with nobody to help it: new NIC name so the DHCP lease starts
+# over, and this runs after phase 6, so /etc has been through a real reset
+# and holds no NetworkManager profile at all.
+phase_7_disk_portability() {
+    say "phase 7: the disk IS the NAS — same disk, a machine it has never seen"
+    kill_vm
+    PORTABILITY_HW=1 boot_vm
+    wait_ssh
+    assert_eq "the NAS knows itself on strange hardware" "$SETUP_HOSTNAME" \
+        "$(vm_root cat /etc/hostname)"
+    assert_eq "the administrator moved with the disk, same uid" "1001" \
+        "$(vm_root id -u "$SETUP_USER")"
+    assert_eq "the data moved with the disk" "precious" \
+        "$(vm_root cat "/data/share/$SETUP_SHARE/family-photos.txt")"
+    # From the LAN, through the firewall, over a NIC driver the machine has
+    # never loaded before — the whole promise in one line, again.
+    wait_smb "$SETUP_SHARE" family-photos.txt
+    assert_eq "the share serves on strange hardware" "precious" \
+        "$(smb_get "$SETUP_SHARE" family-photos.txt)"
+}
+
 clean() {
     "$ENGINE" rm -f lukenasos-registry >/dev/null 2>&1 || true
     rm -rf "$BUILD_DIR"
@@ -1020,8 +1056,9 @@ all() {
     phase_4_auto_rollback
     phase_5_factory_reset
     phase_6_power_loss
+    phase_7_disk_portability
     kill_vm
-    say "LIFECYCLE COMPLETE — install, set up, update, break, auto-rollback, reset: all green"
+    say "LIFECYCLE COMPLETE — install, set up, update, break, auto-rollback, reset, move the disk: all green"
 }
 
 resume_from_2() {
@@ -1038,8 +1075,9 @@ resume_from_2() {
     phase_4_auto_rollback
     phase_5_factory_reset
     phase_6_power_loss
+    phase_7_disk_portability
     kill_vm
-    say "RESUME COMPLETE — phases 2-6 green"
+    say "RESUME COMPLETE — phases 2-7 green"
 }
 
 resume_from_4() {
@@ -1058,8 +1096,9 @@ resume_from_4() {
     phase_4_auto_rollback
     phase_5_factory_reset
     phase_6_power_loss
+    phase_7_disk_portability
     kill_vm
-    say "RESUME COMPLETE — phases 4-6 green"
+    say "RESUME COMPLETE — phases 4-7 green"
 }
 
 multidisk_guard() {
