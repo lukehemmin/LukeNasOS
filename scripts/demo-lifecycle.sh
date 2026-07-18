@@ -70,7 +70,10 @@ SMB_PORT="${SMB_PORT:-4450}"
 # firewall's 9090 rule only means something to a client that is not on the box.
 COCKPIT_PORT="${COCKPIT_PORT:-9990}"
 
-say() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
+# Every phase header carries the elapsed clock: seven debug cycles in one
+# day taught that "which phase eats the time" should be readable off any
+# log without arithmetic.
+say() { printf '\n\033[1m== [%02d:%02d] %s ==\033[0m\n' $((SECONDS / 60)) $((SECONDS % 60)) "$*"; }
 
 # ── infrastructure ────────────────────────────────────────────────────────
 

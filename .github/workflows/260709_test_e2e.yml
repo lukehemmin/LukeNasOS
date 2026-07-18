@@ -10,6 +10,14 @@ on:
   push:
     branches: [260709_test]
   workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: >
+          Resume a failed lifecycle: the run id whose lifecycle-disk artifact
+          to continue from (runs phases 4-7 on that disk instead of a fresh
+          install). Leave empty for a normal full run.
+        required: false
+        default: ""
 
 jobs:
   static:
@@ -207,8 +215,52 @@ jobs:
       - name: Download netinst ISO if not cached
         run: scripts/build-iso.sh --fetch-only
       - name: Run the full lifecycle
+        if: github.event.inputs.resume_run_id == ''
         timeout-minutes: 120
         run: scripts/demo-lifecycle.sh all
+
+      # ── the resume path: seven debug cycles in one day priced this in ──
+      # A phase-5 bug used to cost a full ~35-minute rerun per attempt. A
+      # failed run now leaves its disk behind (below), and dispatching this
+      # workflow with resume_run_id continues phases 4-7 on that exact disk
+      # in ~10 minutes. The disk carries the whole machine state; the local
+      # registry images are rebuilt from the tree, which is fine because the
+      # resume is for iterating on the HARNESS and the later phases, not on
+      # the image (an image change needs the full run anyway).
+      - name: Fetch the failed run's disk
+        if: github.event.inputs.resume_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download "${{ github.event.inputs.resume_run_id }}" \
+            -R "${{ github.repository }}" -n lifecycle-disk -D build/
+          zstd -d --rm build/lukenasos-test.qcow2.zst
+          chmod 600 build/test-key
+      - name: Resume phases 4-7 on the failed run's disk
+        if: github.event.inputs.resume_run_id != ''
+        timeout-minutes: 60
+        # build-variants first: phase 4 pulls v2/v2-broken from the local
+        # registry, which starts empty on this fresh runner. Rebuilding them
+        # from the tree is the point — the resume iterates on the harness
+        # and the late phases, not on the image.
+        run: |
+          scripts/demo-lifecycle.sh build-variants
+          scripts/demo-lifecycle.sh resume-from-4
+
+      - name: Leave the disk behind for a resume
+        if: failure()
+        run: zstd -T0 -q build/lukenasos-test.qcow2
+      - name: Upload the disk
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifecycle-disk
+          retention-days: 3
+          if-no-files-found: ignore
+          path: |
+            build/lukenasos-test.qcow2.zst
+            build/test-key
+            build/test-key.pub
 
   wizard-browser:
     # The browser half of the wizard. The machine half (verbs, credential
