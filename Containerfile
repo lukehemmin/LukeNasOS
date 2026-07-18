@@ -8,19 +8,19 @@
 # NEVER bake credentials into this file. First-boot credentials come from
 # the installer (installer/luke.ks). CI greps for leaked keys.
 
-# fedora-bootc:44 as of 2026-07-17 11:30 UTC (SUPPORT_END=2027-05-19). The
-# scheduled rebuild workflow proposes digest bumps within the tag; the release
-# bump is a deliberate act, because it is never just a digest — see the greenboot
-# note at the enable list below, and the EOL watch in rebuild.yml.
-#
-# This pin is a RECORD, not a guarantee, and that is not the intent — see
-# TODOS.md, "the digest pin does not pin anything". quay.io/fedora/fedora-bootc
-# deletes a manifest the moment the tag moves off it (measured 2026-07-17: the
-# 44 tag moved at 11:30:32, the digest we had pinned since yesterday was gone by
-# 11:57, and the build failed with "manifest unknown"). So this line cannot hold
-# a base still; it can only say which one we last built against. Mirroring the
-# base into a registry we control is the fix, and it is a maintainer decision.
-ARG BASE_IMAGE=quay.io/fedora/fedora-bootc@sha256:451ab491a197c41ba07277bad6a72f6d8458d4dd9fb189b242419031aa9ea840
+# fedora-bootc:44 as of 2026-07-17 11:30 UTC (SUPPORT_END=2027-05-19),
+# pinned via OUR MIRROR — since 2026-07-18 this pin is a guarantee, not a
+# record. quay.io/fedora/fedora-bootc deletes a manifest the moment the tag
+# moves off it (measured: 27 minutes from tag move to "manifest unknown"),
+# which made the old quay pin break the build roughly daily and every past
+# release unrebuildable. mirror-base.yml copies the base digest-preservingly
+# into ghcr.io/lukehemmin/fedora-bootc-mirror (the digest below is
+# byte-identical to upstream's) and keeps every mirrored digest tagged, so it
+# can never be garbage-collected out from under this line. Weekly, an hour
+# before scheduled-rebuild; the release bump stays a deliberate act, because
+# it is never just a digest — see the greenboot note at the enable list
+# below, and the EOL watch in rebuild.yml.
+ARG BASE_IMAGE=ghcr.io/lukehemmin/fedora-bootc-mirror@sha256:451ab491a197c41ba07277bad6a72f6d8458d4dd9fb189b242419031aa9ea840
 FROM ${BASE_IMAGE}
 
 ARG VERSION=0.1.0-dev

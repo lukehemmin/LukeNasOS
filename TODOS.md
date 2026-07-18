@@ -62,18 +62,16 @@ notes the day they were proven, not the day they were written.
 
 ## Now: debts, in the order they will bite
 
-- [ ] **The digest pin does not pin anything** — the Containerfile pins the base by
-  digest because "an OS that promises safe updates cannot itself update from a mutable
-  tag". quay.io/fedora/fedora-bootc deletes a manifest the moment the tag moves off it —
-  no time-machine window at all. Measured 2026-07-17: Fedora moved `44` at 11:30:32, our
-  digest (green in CI the day before) was unreachable by 11:57, and every build since fails
-  with `manifest unknown`. Two consequences, both against the policy's own purpose: the
-  build breaks roughly daily while `scheduled-rebuild` proposes bumps **weekly**, and no
-  past release can ever be rebuilt from its recorded digest — which is what
-  `docs/exit-plan.md` assumes. The fix is to mirror the base into a registry we control
-  (GHCR) and pin to the mirror; that is a supply-chain decision for the maintainer, and it
-  rides along with the still-pending GHCR publish. Until then, every red `build` job with
-  `manifest unknown` is this, not the commit under it. (M → S, P1)
+- [x] **The digest pin does not pin anything — shipped 2026-07-18** (maintainer
+  approved the supply-chain decision): `mirror-base.yml` copies
+  quay.io/fedora/fedora-bootc into `ghcr.io/lukehemmin/fedora-bootc-mirror`
+  digest-preservingly (`--all --preserve-digests` — the mirrored digest is
+  byte-identical to upstream's, verified fetchable by digest and anonymously
+  pullable), gives every mirrored digest a dated tag so it can never be
+  garbage-collected out from under the pin, and runs weekly an hour before
+  scheduled-rebuild. The Containerfile pins the mirror now: the pin is a
+  guarantee, the build stops breaking on quay's tag moves, and past releases
+  become rebuildable — which is what docs/exit-plan.md always assumed. (M → S, P1)
 
 ## Next: the first-boot wizard
 
@@ -110,13 +108,14 @@ browser-side proof and the polish around it:
   deliberately (5353/udp) rather than by habit. Phase 1 findability is the console banner
   printing the wizard URL. (S → S, P2)
 
-- [ ] **Disk portability test** — pull the boot drive, put it in another machine, confirm
-  the NAS identity comes back from `/data`. No longer only a marketing claim: as of
-  2026-07-17 there is a mechanism, and `lukenasos-identity.service` restores the account,
-  uid, hostname and shares from the capsule on every boot precisely so a moved disk works.
-  So this stopped being "write a test for a claim" and became "test the code that makes the
-  claim true" — and QEMU can do most of it (boot the installed disk on a VM with different
-  virtual hardware) without waiting for M2 hardware. (M → S, P2)
+- [x] **Disk portability test — shipped 2026-07-18** as lifecycle phase 7 (green, run
+  29642071363): the same disk that lived through install/setup/update/rollback/reset/
+  power-cuts boots on hardware it has never seen (i440fx + e1000 instead of q35 + virtio
+  — new NIC name, fresh DHCP lease, no NetworkManager profile in the post-reset /etc)
+  and is still the same NAS: name, administrator with the same uid, data, and the share
+  served through the firewall. The disk bus stays virtio on purpose — swapping it would
+  test the initramfs's driver inventory, which is Fedora's promise, not ours. What
+  remains for M2 is only the literal-hardware version of the same move. (M → S, P2)
 
 - [ ] **Timeline / undo web UI** — the heart of the product vision. The M1 event model is
   its foundation. Stack DECIDED (eng review 2026-07-16, install-UX design): Cockpit
