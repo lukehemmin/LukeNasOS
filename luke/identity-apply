@@ -23,6 +23,7 @@ source "$(dirname "$0")/lib.sh"
 NFT_DIR="${LUKE_NFT_DIR:-/etc/lukenasos/nftables.d}"
 HOSTNAME_FILE="${LUKE_HOSTNAME_FILE:-/etc/hostname}"
 SSH_DIR="${LUKE_SSH_DIR:-/etc/ssh}"
+COCKPIT_CONF_DIR="${LUKE_COCKPIT_CONF_DIR:-/etc/cockpit}"
 
 [ -d "$LUKE_CAPSULE" ] || exit 0
 
@@ -136,6 +137,15 @@ if [ "${admin_restored:-0}" = 1 ] \
     && [ "$(passwd -S "$LUKE_DEFAULT_USER" 2>/dev/null | awk '{print $2}')" = "P" ]; then
     usermod --lock --expiredate 1 "$LUKE_DEFAULT_USER" \
         && note "installer account '$LUKE_DEFAULT_USER' retired again"
+fi
+
+# The Cockpit login hint is /etc too, so the fresh /etc holds the image's
+# fresh-install text — "sign in as luke with the token" — which stopped being
+# true the moment an administrator was restored above. Same reason as the
+# retirement: never let a reset resurrect the installer-era story.
+if [ "${admin_restored:-0}" = 1 ] && [ -d "$COCKPIT_CONF_DIR" ]; then
+    printf 'Sign in with your account name and password.\n' \
+        > "$COCKPIT_CONF_DIR/issue.cockpit" 2>/dev/null || true
 fi
 
 # ── the shares ────────────────────────────────────────────────────────────

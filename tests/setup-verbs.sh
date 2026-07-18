@@ -32,7 +32,11 @@ REAL_HASH='$y$j9T$abcdefghijklmnop$0123456789abcdefghijklmnopqrstuvwxyzABCDEF'
 machine() {
     local lastchg="${1:-20651}" hash="${2:-$REAL_HASH}"
     rm -rf "$WORK/m"; mkdir -p "$WORK/m/bin" "$WORK/m/state" "$WORK/m/capsule" \
-        "$WORK/m/nft" "$WORK/m/share" "$WORK/m/home/luke/.ssh" "$WORK/m/etc" "$WORK/m/ssh"
+        "$WORK/m/nft" "$WORK/m/share" "$WORK/m/home/luke/.ssh" "$WORK/m/etc" "$WORK/m/ssh" \
+        "$WORK/m/cockpit"
+    # The Cockpit login hint, as the image ships it (fresh-install text).
+    printf "Sign in as 'luke'. The password is the setup token.\n" \
+        > "$WORK/m/cockpit/issue.cockpit"
     # The machine's ssh identity, as first-boot generated it.
     printf 'ORIGINAL-HOST-KEY\n' > "$WORK/m/ssh/ssh_host_ed25519_key"
     printf 'ORIGINAL-HOST-KEY-PUB\n' > "$WORK/m/ssh/ssh_host_ed25519_key.pub"
@@ -186,6 +190,7 @@ run() {
         LUKE_QUADLET="$WORK/m/samba.container" \
         LUKE_NFT_DIR="$WORK/m/nft" \
         LUKE_SHARE_ROOT="$WORK/m/share" \
+        LUKE_COCKPIT_CONF_DIR="$WORK/m/cockpit" \
         bash "$REPO_ROOT/luke/setup" "$@" 2>&1)
     RC=$?
     set -o errexit
@@ -226,6 +231,12 @@ else bad "creates the administrator and says so in JSON the wizard can read"; fi
 if grep -q "sangho:$(printf '%s' "$REAL_HASH")" "$WORK/m/passwords-set" 2>/dev/null; then
     ok "the password chosen at the PAM prompt is what the new account gets"
 else bad "the password chosen at the PAM prompt is what the new account gets"; fi
+
+# The login page said "sign in as luke, the token is the password" — true
+# until the line that retired luke, and a lie every day after.
+if ! grep -qi "token" "$WORK/m/cockpit/issue.cockpit"; then
+    ok "the login page stops telling people to sign in with the token"
+else bad "the login page stops telling people to sign in with the token"; fi
 
 # The capsule is the whole reason a factory reset does not erase the owner.
 if [ -f "$WORK/m/capsule/accounts/sangho.json" ] \
@@ -409,6 +420,9 @@ reset_etc() {
     # reason clients get REMOTE HOST IDENTIFICATION HAS CHANGED after a reset.
     printf 'REGENERATED-AFTER-RESET\n' > "$WORK/m/ssh/ssh_host_ed25519_key"
     printf 'REGENERATED-PUB\n' > "$WORK/m/ssh/ssh_host_ed25519_key.pub"
+    # The fresh /etc holds the image's fresh-install login hint again.
+    printf "Sign in as 'luke'. The password is the setup token.\n" \
+        > "$WORK/m/cockpit/issue.cockpit"
 }
 
 apply() {
@@ -419,6 +433,7 @@ apply() {
         LUKE_NFT_DIR="$WORK/m/nft" \
         LUKE_HOSTNAME_FILE="$WORK/m/etc-hostname" \
         LUKE_SSH_DIR="$WORK/m/ssh" \
+        LUKE_COCKPIT_CONF_DIR="$WORK/m/cockpit" \
         bash "$REPO_ROOT/luke/identity-apply" 2>&1)
     RC=$?
     set -o errexit
@@ -462,6 +477,12 @@ else bad "the NAS remembers its name through a reset"; fi
 if called "usermod --lock --expiredate 1 luke"; then
     ok "retires the installer account again, every time /etc comes back fresh"
 else bad "retires the installer account again, every time /etc comes back fresh"; fi
+
+# Same story, told to the login page: the fresh /etc says "sign in with the
+# token" again, about an account the line above just re-retired.
+if ! grep -qi "token" "$WORK/m/cockpit/issue.cockpit"; then
+    ok "the reset does not resurrect the token hint on the login page"
+else bad "the reset does not resurrect the token hint on the login page"; fi
 
 if grep -q "tcp dport 445 accept" "$WORK/m/nft/10-shares.nft" \
    && grep -q '^ACCOUNT_sangho=' "$WORK/m/capsule/samba.env"; then

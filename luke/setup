@@ -25,6 +25,7 @@ SHADOW="${LUKE_SHADOW:-/etc/shadow}"
 QUADLET="${LUKE_QUADLET:-/usr/share/containers/systemd/samba.container}"
 NFT_DIR="${LUKE_NFT_DIR:-/etc/lukenasos/nftables.d}"
 SHARE_ROOT="${LUKE_SHARE_ROOT:-/var/mnt/data/share}"
+COCKPIT_CONF_DIR="${LUKE_COCKPIT_CONF_DIR:-/etc/cockpit}"
 
 usage() {
     cat <<'EOF'
@@ -394,6 +395,15 @@ do_account() {
     # Locked and expired, not deleted — its home may hold something, and a
     # deleted uid is a hole in the story `luke status --events` tells.
     usermod --lock --expiredate 1 "$LUKE_DEFAULT_USER" >/dev/null 2>&1 || true
+
+    # The Cockpit login hint (Containerfile ships the fresh-install text:
+    # sign in as luke, the token is the password) became a lie on the line
+    # above. Best-effort: a missing hint is a worse reason to fail setup than
+    # a stale one is to keep it.
+    if [ -d "$COCKPIT_CONF_DIR" ]; then
+        printf 'Sign in with your account name and password.\n' \
+            > "$COCKPIT_CONF_DIR/issue.cockpit" 2>/dev/null || true
+    fi
 
     event_log setup-account "$(jq -cn --arg u "$name" --argjson uid "$uid" \
         '{user: $u, uid: $uid, retired: "luke"}')"

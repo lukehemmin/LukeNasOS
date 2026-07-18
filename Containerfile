@@ -101,6 +101,16 @@ RUN printf '%s\n' systemd users metrics networkmanager storaged \
            printf '{"menu": null, "tools": null, "dashboard": null}\n' \
                > "/etc/cockpit/$p.override.json"; \
        done < /usr/share/lukenasos/cockpit-hidden-pages
+#
+# The login page must say what to type: Cockpit's stock "Wrong user name or
+# password" would never hint that the setup token IS the password (design
+# finding 2.5). Its Banner hook is the one sanctioned way to put words on
+# that page. This is the fresh-install text; `luke setup account` and
+# identity-apply rewrite it the moment "sign in as luke" stops being true.
+RUN printf '[Session]\nBanner = /etc/cockpit/issue.cockpit\n' \
+        > /etc/cockpit/cockpit.conf \
+    && printf "Sign in as 'luke'. The password is the setup token shown on this machine's own screen.\nThe certificate warning your browser gave is expected for a device with no public domain name.\n" \
+        > /etc/cockpit/issue.cockpit
 
 # ── the first-boot wizard (Cockpit plugin) ───────────────────────────────
 # Step 1 of the setup flow (SPEC §6): a static page over `luke setup` — it
