@@ -47,7 +47,10 @@ kvm_args=()
 [ -e /dev/kvm ] && kvm_args+=(-enable-kvm)
 
 echo
-echo "Booting LukeNasOS. Login: luke / lukenasos (you will be asked to change it)."
+# No password printed here on purpose: LukeNasOS ships no well-known
+# password (SPEC §10) — the machine prints its own one-time setup token on
+# the console it is about to show.
+echo "Booting LukeNasOS. The console below shows the setup token to sign in with."
 echo "SSH from another terminal:  ssh -p $SSH_PORT luke@localhost"
 echo "Then try:                   luke status → luke update → reboot → luke undo"
 echo
