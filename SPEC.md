@@ -202,7 +202,9 @@ Promotion:     a deployment may become the new pinned target after it passes hea
 Reset:         1. verify the pinned commit (or @seed archive if the repo is damaged)
                2. discard any staged deployment
                3. redeploy the pinned commit
-               4. reset /etc from image defaults (no 3-way merge)
+               4. reset /etc from image defaults (no 3-way merge; the kernel
+                  arguments and the disk's own plumbing — fstab — ride along:
+                  the layout is the machine, not the configuration)
                5. clear OS state (user's choice)
                6. NEVER touch @data
                7. reboot

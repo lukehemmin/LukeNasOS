@@ -124,6 +124,24 @@ ostree admin deploy --no-merge --karg-proc-cmdline --stateroot="$stateroot" --re
         "see: journalctl -b" \
         "luke doctor"
 
+# The disk's own plumbing rides along, the way the kernel arguments do: the
+# image's /etc has no fstab — anaconda wrote it at install — and without it
+# /boot and /boot/efi never mount on the reset boot. Everything that touches
+# them then falls over in a row: bootupd, grub2-editenv (the rollback
+# trigger), the ostree sysroot half-loads, `bootc status` errors, and the
+# banner dies of that error through pipefail (all observed on one lifecycle
+# reset boot). The layout is the machine, not the configuration.
+# shellcheck disable=SC2012  # deployment dirs are ostree-named, never exotic
+new_dep_dir=$(ls -d "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*/ 2>/dev/null \
+    | sed 's:/*$::' | awk -F. '{print $NF, $0}' | sort -n | awk 'END {print $2}')
+if [ -n "$new_dep_dir" ]; then
+    for f in fstab crypttab; do
+        if [ -f "/etc/$f" ]; then
+            cp -a "/etc/$f" "$new_dep_dir/etc/$f"
+        fi
+    done
+fi
+
 # Clear app/OS machine state but keep the ostree repo, the event journal,
 # and /data. Containers are redeployed from quadlet units on next boot.
 rm -rf /var/lib/containers/storage 2>/dev/null || true

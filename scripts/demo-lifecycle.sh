@@ -807,7 +807,15 @@ phase_5_factory_reset() {
     wait_cockpit
     echo "   ok: the wizard's door still answers after the reset"
 
-    assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
+    # The reset boot's own health, on the record whether or not an assertion
+    # below fails: a row of failed units here is how the last two /etc bugs
+    # (the missing --no-merge, then the missing fstab) announced themselves.
+    echo "   failed units on the reset boot (empty is the answer):"
+    vm systemctl --failed --no-legend 2>/dev/null | sed 's/^/     /' || true
+
+    # assert_json, not a bare jq: when this reads "unknown" the reason is
+    # bootc's own stderr, and a check that cannot say why costs a full run.
+    assert_json "booted after reset" .booted v1 -- luke status --json
 
     # The uid is the one thing that cannot be re-derived. Every file on /data is
     # owned by a number; an account restored with a different one would leave the
