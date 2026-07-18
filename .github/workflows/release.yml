@@ -45,10 +45,23 @@ jobs:
       - name: Push
         run: podman push "$IMAGE:${{ github.ref_name }}-${{ matrix.target }}"
       - name: Sign (cosign, keyless — pinned to this workflow identity)
+        # Two lessons from the first v0.1.0 attempt, both of which failed the
+        # release AFTER the image was already pushed:
+        # - The digest must come from the REGISTRY, not from podman's local
+        #   RepoDigests: push recompresses layers, the local digest "succeeds"
+        #   with a value the registry has never heard of, and cosign 404s on
+        #   it (the old skopeo fallback never ran, because being wrong is not
+        #   the same as failing).
+        # - cosign's binary must match the runner: the hardcoded -amd64
+        #   download came back exit 126 ("cannot execute") on the ARM runner.
         run: |
-          curl -fsSL -o cosign https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          case "$(uname -m)" in
+            aarch64) coarch=arm64 ;;
+            *)       coarch=amd64 ;;
+          esac
+          curl -fsSL -o cosign "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-${coarch}"
           chmod +x cosign
-          digest=$(podman image inspect "$IMAGE:${{ github.ref_name }}-${{ matrix.target }}" --format '{{index .RepoDigests 0}}' | cut -d@ -f2 || skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:${{ github.ref_name }}-${{ matrix.target }}")
+          digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:${{ github.ref_name }}-${{ matrix.target }}")
           ./cosign sign --yes "$IMAGE@$digest"
 
   smoke-and-publish:
