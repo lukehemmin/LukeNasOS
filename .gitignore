@@ -4,3 +4,7 @@ build/
 *.iso
 *.img
 .DS_Store
+tests/wizard-e2e/node_modules/
+tests/wizard-e2e/screens/
+tests/wizard-e2e/test-results/
+tests/wizard-e2e/package-lock.json

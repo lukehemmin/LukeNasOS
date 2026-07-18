@@ -20,7 +20,7 @@
 # commits must be testable, and signature rejection is only reproducible
 # against a registry we control.
 #
-# Usage: demo-lifecycle.sh <registry-up|build-variants|install|multidisk-guard|all|verify-static|clean>
+# Usage: demo-lifecycle.sh <registry-up|build-variants|install|multidisk-guard|all|wizard-browser|verify-static|clean>
 #
 # Env: FIRMWARE=uefi|bios  EXTRA_DISK=<qcow2>  QEMU_SERIAL=<qemu -serial spec>
 
@@ -973,6 +973,13 @@ verify_static() {
         echo "the wizard must call luke verbs, never system tools (SPEC §6)" >&2
         return 1
     fi
+    # The browser suite's JS, parsed here for the same reason the shell gets
+    # bash -n: a syntax error should cost a second, not a VM install.
+    if command -v node >/dev/null; then
+        node --check "$REPO_ROOT"/web/lukenasos-setup/setup.js \
+            "$REPO_ROOT"/tests/wizard-e2e/wizard.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
+    fi
 
     # The firewall policy is loaded by nftables.service at boot; a typo means
     # a machine that boots with no filter at all, which is exactly the hole
@@ -1036,6 +1043,35 @@ phase_7_disk_portability() {
     wait_smb "$SETUP_SHARE" family-photos.txt
     assert_eq "the share serves on strange hardware" "precious" \
         "$(smb_get "$SETUP_SHARE" family-photos.txt)"
+}
+
+# The browser half of the wizard (tests/wizard-e2e): a fresh install driven
+# by Playwright exactly the way the owner drives it — sign in with the token
+# read off the machine, name the NAS, get signed out with an explanation,
+# sign back in as yourself, make the share, land. Its own verb rather than a
+# phase because the wizard MUTATES the machine: it does the same setup phase
+# 1c does, so the two can never share a disk.
+wizard_browser() {
+    trap kill_vm EXIT
+    registry_up
+    build_variants
+    make_oemdrv
+    install_vm
+    boot_vm
+    wait_ssh
+    # The owner's first credential, read where the owner reads it. vm_root
+    # because the token file is 0600 root — the console shows it, the
+    # harness's ssh session must ask.
+    local token
+    token=$(vm_root cat /var/lib/lukenasos/setup-token)
+    [ -n "$token" ] || { echo "no setup token on the fresh machine" >&2; return 1; }
+    wait_cockpit
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && npm install --no-fund --no-audit >/dev/null \
+        && LUKE_TOKEN="$token" COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test )
+    kill_vm
+    say "WIZARD BROWSER E2E COMPLETE — the JS ran, on a real machine, as the owner"
 }
 
 clean() {
@@ -1146,7 +1182,8 @@ case "${1:-all}" in
     verify-static)  verify_static ;;
     clean)          clean ;;
     all)            all ;;
+    wizard-browser) wizard_browser ;;
     resume-from-2)  resume_from_2 ;;
     resume-from-4)  resume_from_4 ;;
-    *) echo "usage: $0 <registry-up|build-variants|install|multidisk-guard|all|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
+    *) echo "usage: $0 <registry-up|build-variants|install|multidisk-guard|all|wizard-browser|verify-static|clean|resume-from-4>" >&2; exit 2 ;;
 esac
