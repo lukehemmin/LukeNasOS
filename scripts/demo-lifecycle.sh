@@ -153,6 +153,12 @@ chown -R luke:luke /home/luke/.ssh && chmod 700 /home/luke/.ssh && chmod 600 /ho
 chage -d "\$(date +%Y-%m-%d)" luke
 echo 'luke ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/luke-test
 chmod 0440 /etc/sudoers.d/luke-test
+# TEST ONLY — the un-expire above makes the banner treat the token as SPENT
+# on first boot, and the banner (correctly) deletes a spent token. The
+# browser E2E still needs to sign in the way the owner does, so park a copy
+# where the banner will not reap it. luke's password IS still the token —
+# nothing changed it.
+cp /var/lib/lukenasos/setup-token /var/lib/lukenasos/.test-token 2>/dev/null || true
 # TCG-emulated test hosts start containers an order of magnitude slower
 # than any real machine; stretch the Samba health-check grace accordingly.
 # In /var/lib, not /etc: the grace is a property of this (slow) machine, and
@@ -1059,12 +1065,14 @@ wizard_browser() {
     install_vm
     boot_vm
     wait_ssh
-    # The owner's first credential, read where the owner reads it. vm_root
-    # because the token file is 0600 root — the console shows it, the
-    # harness's ssh session must ask.
+    # The owner's first credential. NOT the live token file: the test
+    # kickstart un-expires luke, which makes the first boot's banner
+    # (correctly) reap the token as spent — so the kickstart parked a copy
+    # for the harness. luke's password is still the token; the browser signs
+    # in exactly the way the owner would.
     local token
-    token=$(vm_root cat /var/lib/lukenasos/setup-token)
-    [ -n "$token" ] || { echo "no setup token on the fresh machine" >&2; return 1; }
+    token=$(vm_root cat /var/lib/lukenasos/.test-token)
+    [ -n "$token" ] || { echo "no parked setup token on the test machine" >&2; return 1; }
     wait_cockpit
     ( cd "$REPO_ROOT/tests/wizard-e2e" \
         && npm install --no-fund --no-audit >/dev/null \
