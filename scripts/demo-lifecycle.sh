@@ -612,6 +612,10 @@ phase_1c_setup() {
     assert_json "stamp result" .result stamped -- luke setup stamp --step 2 --json
     assert_json "status carries the bookmark" .wizard.step 2 -- luke setup status --json
 
+    # The health strip's "factory reset ready ✓" is this field; it must come
+    # from the machine (the pin ostree actually holds), not from hope.
+    assert_json "status reports the reset target pinned" .pinned true -- luke status --json
+
     # The escape hatch, on the record: unlock reveals, the event says so, and
     # a second unlock is nothing-to-do. Phase 5 then asserts the factory reset
     # takes the unlock back — locked is the factory state.

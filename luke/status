@@ -57,17 +57,27 @@ if [ -f "$LUKE_EXPECTED" ] && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
 fi
 
 if [ "$JSON" = 1 ]; then
+    # pinned: whether the factory-reset target exists (SPEC §5, LUKE-E040).
+    # The wizard's health strip renders this as "factory reset ready" — it is
+    # in this JSON so that claim comes from the machine, not from hope. There
+    # is deliberately no "recovery seed" field: no seed-capture mechanism
+    # exists yet, and a status field for it would be this spec's favorite
+    # bug — describing a machine that does not exist — as an API.
+    pinned=false
+    pinned_deployment_exists && pinned=true
     jq -n \
         --arg verdict "$verdict" \
         --arg booted "$booted_ver" \
         --arg staged "${staged_ver:-}" \
         --arg rollback "${rollback_ver:-}" \
         --arg staged_lost "${staged_lost:-no}" \
+        --argjson pinned "$pinned" \
         --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
         '{verdict: $verdict, booted: $booted,
           staged: (if $staged == "" then null else $staged end),
           rollback: (if $rollback == "" then null else $rollback end),
           staged_lost: ($staged_lost == "yes"),
+          pinned: $pinned,
           last_rollback: $cause[0]}'
     exit "$EXIT_OK"
 fi

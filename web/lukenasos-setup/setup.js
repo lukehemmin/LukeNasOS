@@ -82,6 +82,47 @@ function mountStrings(share) {
     $("done4-user").textContent = state.user || "—";
 }
 
+/* ── the health strip ────────────────────────────────────────────────── */
+
+/* Polls, rather than reads once: a segment flipping to its strong form
+ * mid-wizard is a live proof, not a static claim (design finding 3.4). Every
+ * failure state names the command that explains it — no dead ends. */
+function seg(id, cls, text) {
+    const el = $(id);
+    el.className = "seg " + cls;
+    el.textContent = text;
+}
+
+function renderStrip(st) {
+    $("strip").hidden = false;
+    if (st.verdict === "OK")
+        seg("seg-verdict", "ok", "● OK");
+    else if (st.verdict === "RECOVERED")
+        seg("seg-verdict", "warn", "▲ recovered — an update was rolled back");
+    else
+        seg("seg-verdict", "bad", "✕ degraded — luke doctor");
+
+    if (st.pinned)
+        seg("seg-reset", "ok", "factory reset ready ✓");
+    else
+        seg("seg-reset", "bad", "factory reset target missing — luke doctor");
+
+    if (st.rollback)
+        seg("seg-rollback", "ok", "rollback armed ✓");
+    else
+        seg("seg-rollback", "pending", "rollback target: after first update");
+
+    seg("seg-version", "pending", st.booted || "");
+}
+
+function pollStrip() {
+    luke(["status"])
+        .then(renderStrip)
+        .catch(() => { /* the strip is ambient; routing owns error surfaces */ })
+        .then(() => window.setTimeout(pollStrip, 15000));
+    // .catch().then(), not .finally(): cockpit's promise flavor predates it.
+}
+
 /* ── routing ─────────────────────────────────────────────────────────── */
 
 function route(status) {
@@ -295,4 +336,5 @@ document.addEventListener("DOMContentLoaded", () => {
         init();
     });
     init();
+    pollStrip();
 });

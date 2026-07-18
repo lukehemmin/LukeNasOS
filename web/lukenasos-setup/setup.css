@@ -96,6 +96,37 @@ body {
     .pills-compact { display: block; }
 }
 
+/* The health strip: one line of recovery truth above every step. Stacks on
+   phones (design finding 5.2). Color reinforces, never carries alone — the
+   symbol and the words are the meaning. */
+.strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0 0 1rem;
+}
+.seg {
+    padding: 0.15rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+.seg.ok    { border-color: #3e8635; color: #3e8635; }
+.seg.warn  { border-color: #f0ab00; color: #795600; }
+.seg.bad   { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+html[class*="theme-dark"] .seg.ok   { border-color: #5ba352; color: #5ba352; }
+html[class*="theme-dark"] .seg.warn { border-color: #f0ab00; color: #f0ab00; }
+@media (prefers-color-scheme: dark) {
+    .seg.ok   { border-color: #5ba352; color: #5ba352; }
+    .seg.warn { border-color: #f0ab00; color: #f0ab00; }
+}
+html[class*="theme-light"] .seg.ok   { border-color: #3e8635; color: #3e8635; }
+html[class*="theme-light"] .seg.warn { border-color: #f0ab00; color: #795600; }
+@media (max-width: 480px) {
+    .strip { flex-direction: column; }
+}
+
 .card {
     background: var(--card);
     border: 1px solid var(--line);

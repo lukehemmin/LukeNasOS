@@ -27,6 +27,17 @@
         <p class="pills-compact" id="pills-compact"></p>
     </header>
 
+    <!-- The product's thesis as a component: recovery states, polled live
+         from `luke status --json`, in truthful first-boot wording. There is
+         no "recovery seed" segment because no seed mechanism exists yet —
+         this strip shows the machine, not the roadmap. -->
+    <div class="strip" id="strip" hidden>
+        <span class="seg" id="seg-verdict">—</span>
+        <span class="seg" id="seg-reset">—</span>
+        <span class="seg" id="seg-rollback">—</span>
+        <span class="seg" id="seg-version">—</span>
+    </div>
+
     <!-- Shown until `luke setup status` has answered. -->
     <section id="view-loading" class="card">
         <p class="muted">Reading this machine&rsquo;s setup state&hellip;</p>
