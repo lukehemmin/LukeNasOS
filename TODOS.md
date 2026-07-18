@@ -19,22 +19,17 @@ existed, on a machine with no Cockpit in it at all.
 > the nftables entry above — SPEC §5.2 had promised since the beginning that users and
 > share definitions survive a factory reset, and nothing had ever written them anywhere
 > that does.
+>
+> **2026-07-17, proven on a real machine**: the "`luke setup` has never run on a real
+> machine" debt is paid. Lifecycle phases 1c and 5 (CI run 29584444236, all green) now
+> spend the token, create the account, reconnect over ssh as the new user, verify the
+> transferred hash byte-for-byte, create a share, mount it from off-machine through the
+> firewall, factory-reset, and check that the account (same uid), hostname, ssh host
+> keys, and share all come back from the capsule. Getting there surfaced three real bugs
+> the stubs had agreed with: every share answered ACCESS_DENIED (0770 root:root parent),
+> `create-hash.sh` output parsing, and ssh host keys were captured but never restored.
 
 ## Now: debts, in the order they will bite
-
-- [ ] **`luke setup` has never run on a real machine** — shipped 2026-07-17:
-  `status | hostname | account | share`, all `--json`, plus the identity capsule and
-  `lukenasos-identity.service`. 29 tests pass, and every one of them runs against **stubs**
-  — `useradd`, `podman`, `nft`, `systemctl` are all fakes written from reading the docs.
-  That proves the logic, not that it works. The `podman run --entrypoint create-hash.sh`
-  call in particular was built by reading the script and has never been executed; the stub
-  encodes the same understanding, so if that understanding is wrong both agree and the
-  suite stays green. The lifecycle E2E does not touch these verbs at all.
-  Fix: a lifecycle phase — spend the token, `setup account`, reconnect over ssh as the new
-  user (does the credential transfer actually work?), `setup share`, mount it from a second
-  VM through the firewall, then factory-reset and check the account and share come back.
-  That last step is the capsule's whole reason to exist and only a stub currently says it
-  works. (M → S, P1) **← in progress**
 
 - [ ] **The digest pin does not pin anything** — the Containerfile pins the base by
   digest because "an OS that promises safe updates cannot itself update from a mutable
@@ -49,20 +44,17 @@ existed, on a machine with no Cockpit in it at all.
   rides along with the still-pending GHCR publish. Until then, every red `build` job with
   `manifest unknown` is this, not the commit under it. (M → S, P1)
 
-- [ ] **SPEC §9 says ssh refuses passwords; it almost certainly does not** — §9: "password
-  authentication over ssh stays refused". But the console banner tells a new owner to
-  `ssh luke@<ip>` and type the setup token, which only works if it is allowed. One of the
-  two is wrong, and nothing in this repo configures sshd, so the base image decides.
-  Evidence so far (2026-07-17), from the base image's own recipe at
-  `gitlab.com/fedora/bootc/base-images`: `standard/manifest.yaml` and its includes are
-  package lists — there is no `sshd_config` drop-in and no postprocess touching ssh
-  anywhere in the tree. So Fedora's `openssh-server` default applies, and that default is
-  **yes**. Which would make §9 wrong and the banner right — the same shape as the §9/§10
-  corrections in PR #3, where the document described a machine that never existed.
-  Not yet confirmed against the built image, only against its recipe. Settle it with
-  `podman run --rm --entrypoint sh <base> -c 'sshd -T | grep -i passwordauth'` (the dev
-  LXC has no podman), then fix whichever side is lying — and if it is §9, decide
-  deliberately whether we *want* password auth on, rather than inheriting it. (S → S, P1)
+- [ ] **SPEC §9 vs the banner on ssh passwords — settled 2026-07-18, proof in CI** —
+  §9 said "password authentication over ssh stays refused"; the banner tells a new owner
+  to `ssh luke@<ip>` and type the setup token. The banner is the product: first login
+  *is* password auth. Decision (per the "decide deliberately, don't inherit" note this
+  entry carried): the image now ships `/etc/ssh/sshd_config.d/40-lukenasos.conf` with
+  `PasswordAuthentication yes` and `PermitRootLogin no` — the second line is *stricter*
+  than the inherited `prohibit-password`, which would still have admitted root with a
+  key. §9 rewritten to match. The lifecycle now asserts both against the running
+  machine: an sshpass connection with pubkey forbidden (phase 1c, and again after the
+  factory reset in phase 5), and `sshd -T` for the root refusal. Fold this entry into
+  the shipped note above once that lifecycle run is green. (S → S, P1)
 
 ## Next: the first-boot wizard
 

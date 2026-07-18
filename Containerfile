@@ -70,6 +70,18 @@ COPY config/network/lukenasos.nft /usr/share/lukenasos/lukenasos.nft
 RUN printf '# LukeNasOS: the policy lives in the image (see SPEC §9).\n# Local additions can go below the include.\ninclude "/usr/share/lukenasos/lukenasos.nft"\ninclude "/etc/lukenasos/nftables.d/*.nft"\n' \
         > /etc/sysconfig/nftables.conf
 
+# ── the ssh door policy ───────────────────────────────────────────────────
+# Deliberate, not inherited. SPEC §9 claimed passwords over ssh were refused
+# while the console banner told a new owner to type the setup token at an ssh
+# prompt — first login IS password auth, so it is switched on here by name,
+# where a reader can find it, and the lifecycle asserts it against the running
+# machine. Root is refused outright: the inherited default (prohibit-password)
+# would still let root in with a key, and this machine's administrator is a
+# wheel account (§10). 40- sorts before Fedora's 50-redhat.conf and sshd takes
+# the first value it sees, so these two lines win.
+RUN printf 'PasswordAuthentication yes\nPermitRootLogin no\n' \
+        > /etc/ssh/sshd_config.d/40-lukenasos.conf
+
 # The banner is the only place a fresh machine shows its setup address and
 # token. It renders once at boot — before DHCP has necessarily answered — so
 # a dispatcher hook re-renders it whenever the addresses change.

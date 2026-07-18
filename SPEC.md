@@ -352,9 +352,20 @@ rather than the document.
 
 `sshd` is **enabled by default, deliberately**. This is a headless appliance: when the
 browser cannot help you, ssh is the recovery path, and the lifecycle test drives the
-machine the same way. Root login and password authentication over ssh stay refused; the
-administrator is a normal `wheel` account. The earlier "disabled by default" line was
-never true of the shipped image.
+machine the same way.
+
+Password authentication over ssh is **on, deliberately**. Amended 2026-07-18: the
+earlier "stays refused" line contradicted §10 and the console banner, which tell a new
+owner to `ssh luke@<ip>` and type the setup token — first login *is* password auth, and
+nothing in the image had ever configured sshd to refuse it; the document described a
+machine that never existed, the same shape as the NetworkManager correction above. What
+defends port 22 is what defends the token: the firewall keeps it LAN-local, no shipped
+password exists (§10), and the token is force-changed at first use. Root login is
+refused outright — stricter than the inherited `prohibit-password`, which would still
+have let root in with a key; the administrator is a normal `wheel` account. Both lines
+live in `/etc/ssh/sshd_config.d/40-lukenasos.conf` rather than being inherited from the
+base image: an appliance's front-door policy should be its own decision, written where a
+reader can find it. The lifecycle asserts both against the running machine.
 
 `nftables` (normative, and now real): the policy in `/usr/share/lukenasos/lukenasos.nft`
 is loaded by `nftables.service` on every boot. Default drop inbound; open ports are named

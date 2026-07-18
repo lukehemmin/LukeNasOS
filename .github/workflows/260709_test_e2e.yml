@@ -190,7 +190,7 @@ jobs:
           # guest, through a forwarded port — the only vantage point where the
           # 445 rule exists. A client inside the VM matches `iif lo accept` and
           # would prove the firewall works by never meeting it.
-          sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools jq podman xorriso smbclient
+          sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools jq podman xorriso smbclient sshpass
       - name: Enable KVM on the runner
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' \

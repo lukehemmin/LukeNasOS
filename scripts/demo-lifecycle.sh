@@ -470,6 +470,16 @@ phase_1c_setup() {
         echo "  Fedora: dnf install -y samba-client   Debian/Ubuntu: apt-get install -y smbclient" >&2
         return 1
     }
+    # Same reasoning for sshpass: §9 now promises password auth over ssh works,
+    # and the only way a script can type at a password prompt is sshpass. Without
+    # it the check would be skipped, and a skipped check that stays green is the
+    # exact shape of bug this file exists to prevent.
+    command -v sshpass >/dev/null || {
+        echo "sshpass is required for this phase: it is the only way to test that" >&2
+        echo "sshd actually takes a password — the banner's whole first-login flow." >&2
+        echo "  Fedora: dnf install -y sshpass   Debian/Ubuntu: apt-get install -y sshpass" >&2
+        return 1
+    }
 
     # The installer leaves the setup token as luke's password and expires it, so
     # the owner must replace it at first login. The test kickstart un-expires the
@@ -503,6 +513,22 @@ phase_1c_setup() {
     SSH_USER="$SETUP_USER"
     wait_ssh
     assert_eq "the new account answers on ssh" "$SETUP_USER" "$(vm whoami)"
+
+    # §9's amended promise, tested the only way that means anything: a connection
+    # forbidden to use the key. This is the path a brand-new owner takes — the
+    # banner says `ssh luke@<ip>` and the only credential they have is a
+    # password. Pubkey is switched off for this one connection so nothing but
+    # the password can be what worked.
+    assert_eq "ssh takes a password (the banner's first-login path)" "$SETUP_USER" \
+        "$(sshpass -p "$SETUP_PASSWORD" ssh "${SSH_OPTS[@]}" \
+            -o PubkeyAuthentication=no -o PreferredAuthentications=password \
+            "$SETUP_USER@localhost" -- whoami)"
+
+    # And root stays outside, key or not: the image ships PermitRootLogin no
+    # because the inherited default (prohibit-password) would still have
+    # admitted root with a key.
+    assert_eq "sshd refuses root outright" "permitrootlogin no" \
+        "$(vm_root sh -c "'sshd -T 2>/dev/null | grep -i ^permitrootlogin'")"
 
     # PAM checking the transferred credential for real, rather than two strings
     # being compared in /etc/shadow. This is the assertion the unit tests cannot
@@ -679,6 +705,14 @@ phase_5_factory_reset() {
     # just the account name — so the repair and the assertion are the same act.
     assert_eq "the password came back with the account" "root" "$(vm_sudo_pw whoami)"
     grant_test_sudo
+
+    # The whole front door after a reset, in one line: sshd's fresh /etc got the
+    # image's drop-in back (password auth on) AND the capsule restored a hash for
+    # it to check. The key is forbidden here so nothing else can be what worked.
+    assert_eq "the front door still takes the password after reset" "$SETUP_USER" \
+        "$(sshpass -p "$SETUP_PASSWORD" ssh "${SSH_OPTS[@]}" \
+            -o PubkeyAuthentication=no -o PreferredAuthentications=password \
+            "$SETUP_USER@localhost" -- whoami)"
 
     assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
 
