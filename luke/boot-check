@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# luke boot-check — settle the verdict early in boot, before the banner.
+#
+# The RECOVERED flow: greenboot's red script records the impending rollback
+# (cause, failing units, version) in pending-rollback.json — /var/lib is
+# shared across deployments, so the record survives the rollback itself.
+# On the next boot, this script decides what actually happened:
+#
+#   pending exists, booted != failed digest  → the rollback happened.
+#     Persist last-rollback.json, block the failed digest from retry,
+#     log the event. The banner shows ▲ RECOVERED with cause and time.
+#   pending exists, booted == failed digest  → still on the bad version
+#     (rollback did not happen; e.g. boot_counter exhausted differently).
+#     Leave pending in place; greenboot will fail again and DEGRADED shows.
+#   no pending → nothing to settle.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+PENDING="$LUKE_STATE_DIR/pending-rollback.json"
+
+# If we booted the digest a previous `luke update` staged, the update is
+# applied: close the loop so status stops tracking it, and record the event.
+if [ -f "$LUKE_EXPECTED" ]; then
+    expected_digest=$(awk '{print $1}' "$LUKE_EXPECTED")
+    if [ -n "$expected_digest" ] && [ "$(booted_digest)" = "$expected_digest" ]; then
+        event_log update-applied "$(jq -cn --arg d "$expected_digest" --arg v "$(booted_version)" \
+            '{digest: $d, version: $v}')"
+        rm -f "$LUKE_EXPECTED"
+    fi
+fi
+
+[ -f "$PENDING" ] || exit 0
+
+failed_digest=$(jq -r '.from_digest // empty' "$PENDING")
+booted=$(booted_digest)
+
+if [ -n "$failed_digest" ] && [ "$booted" != "$failed_digest" ]; then
+    to_ver=$(booted_version)
+    jq --arg to "$to_ver" '. + {to_version: $to}' "$PENDING" > "$LUKE_ROLLBACK_CAUSE"
+    persist "$LUKE_ROLLBACK_CAUSE"
+    rm -f "$PENDING" "$LUKE_STATE_DIR/recovered-acked"
+    block_digest "$failed_digest"
+    event_log auto-rollback "$(cat "$LUKE_ROLLBACK_CAUSE")"
+    # The expected digest is now stale; the machine is deliberately on the
+    # old version. Clear it so status does not mislabel this as a power cut.
+    rm -f "$LUKE_EXPECTED"
+
+    # Make the recovery permanent. GRUB's counter fallback only picks the
+    # previous entry for THIS boot; if the broken deployment is still the
+    # bootloader default, the next power cycle boots it again. greenboot's
+    # check-fallback handles this on rpm-ostree systems — belt and braces
+    # here: if the deployment we recovered into is not the default, swap
+    # the boot order.
+    default_line=$(ostree admin status 2>/dev/null | grep -m1 -E '^[* ] [[:alnum:]]' || true)
+    case "$default_line" in
+        "*"*) : ;;  # booted deployment is already the default
+        *)
+            if bootc rollback >/dev/null 2>&1; then
+                event_log recovery-pinned '{"detail":"boot order swapped to keep the recovered deployment"}'
+            fi
+            ;;
+    esac
+fi
+
+exit 0

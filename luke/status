@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# luke status — the detailed version of the boot banner.
+# Its first line is the banner's first line, verbatim. Verdict first,
+# version last: what a user must learn in half a second is whether they
+# are fine, not which version they are on.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+
+show_events=0
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        --events) show_events=1 ;;
+        --ack)
+            # Acknowledge a RECOVERED verdict: the cause stays in the event
+            # journal, but the banner and status return to ● OK. Without
+            # this the warning would outlive its usefulness.
+            if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then
+                mkdir -p "$LUKE_STATE_DIR"
+                touch "$LUKE_STATE_DIR/recovered-acked"
+                echo "Acknowledged. History stays in: luke status --events"
+            else
+                echo "Nothing to acknowledge."
+            fi
+            exit 0
+            ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke status accepts --json, --events, --ack" "luke status" ;;
+    esac
+done
+
+bootc_json=$(bootc status --json 2>/dev/null || echo '{}')
+booted_ver=$(jq -r '.status.booted.image.version // "unknown"' <<<"$bootc_json")
+booted_dig=$(jq -r '.status.booted.image.imageDigest // ""' <<<"$bootc_json")
+staged_ver=$(jq -r '.status.staged.image.version // empty' <<<"$bootc_json")
+rollback_ver=$(jq -r '.status.rollback.image.version // empty' <<<"$bootc_json")
+verdict=$(current_verdict)
+
+# Power-cut-after-staging detection: a staged deployment lives in /run and
+# is finalized on clean shutdown only — an unclean shutdown DISCARDS it.
+# So if a previous boot recorded an expected digest, nothing is staged now,
+# and we did not boot that digest (and did not roll back), the update was
+# lost to a power cut. Say so, or the user concludes the update "didn't
+# take" and retries forever.
+staged_lost=""
+if [ -f "$LUKE_EXPECTED" ] && [ ! -f "$LUKE_ROLLBACK_CAUSE" ]; then
+    expected_digest=$(awk '{print $1}' "$LUKE_EXPECTED")
+    expected_boot=$(awk '{print $2}' "$LUKE_EXPECTED")
+    current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo current)
+    if [ -z "$staged_ver" ] \
+        && [ "$booted_dig" != "$expected_digest" ] \
+        && [ -n "$expected_boot" ] && [ "$expected_boot" != "$current_boot" ]; then
+        staged_lost="yes"
+    fi
+fi
+
+if [ "$JSON" = 1 ]; then
+    # pinned: whether the factory-reset target exists (SPEC §5, LUKE-E040).
+    # The wizard's health strip renders this as "factory reset ready" — it is
+    # in this JSON so that claim comes from the machine, not from hope. There
+    # is deliberately no "recovery seed" field: no seed-capture mechanism
+    # exists yet, and a status field for it would be this spec's favorite
+    # bug — describing a machine that does not exist — as an API.
+    pinned=false
+    pinned_deployment_exists && pinned=true
+    jq -n \
+        --arg verdict "$verdict" \
+        --arg booted "$booted_ver" \
+        --arg staged "${staged_ver:-}" \
+        --arg rollback "${rollback_ver:-}" \
+        --arg staged_lost "${staged_lost:-no}" \
+        --argjson pinned "$pinned" \
+        --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
+        '{verdict: $verdict, booted: $booted,
+          staged: (if $staged == "" then null else $staged end),
+          rollback: (if $rollback == "" then null else $rollback end),
+          staged_lost: ($staged_lost == "yes"),
+          pinned: $pinned,
+          last_rollback: $cause[0]}'
+    exit "$EXIT_OK"
+fi
+
+verdict_line
+echo "   Booted:   $booted_ver"
+if [ -n "$staged_ver" ]; then
+    echo "   Staged:   $staged_ver (applies on next reboot: luke update --reboot)"
+fi
+if [ -n "$rollback_ver" ]; then
+    echo "   Rollback: $rollback_ver (luke undo)"
+fi
+if [ "$staged_lost" = "yes" ]; then
+    echo "   Note: an update was staged, but the machine lost power before a"
+    echo "         clean reboot could apply it, so it was discarded."
+    echo "         Nothing is wrong with your system. Re-run: luke update"
+fi
+
+if [ "$show_events" = 1 ] && [ -f "$LUKE_EVENTS" ]; then
+    echo
+    echo "   Recent events:"
+    tail -n 10 "$LUKE_EVENTS" | jq -r '"   \(.ts)  \(.type)  \(.detail | tostring)"'
+fi
+
+echo "   Next:     luke doctor · luke update"
+exit "$EXIT_OK"

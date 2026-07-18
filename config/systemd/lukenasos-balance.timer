@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly light btrfs balance (reclaims half-empty chunks; ENOSPC defense, layer 3)
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+RandomizedDelaySec=2h
+
+[Install]
+WantedBy=timers.target

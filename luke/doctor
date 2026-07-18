@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# luke doctor — active checks producing a verdict and the exact command that
+# fixes it. Never a diagnostic dump.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke doctor accepts --json" "luke doctor" ;;
+    esac
+done
+
+declare -a results=()
+fails=0
+
+check() {
+    # check NAME STATUS DETAIL FIX
+    local name="$1" ok="$2" detail="$3" fix="${4:-}"
+    results+=("$(jq -cn --arg name "$name" --arg ok "$ok" --arg detail "$detail" \
+        --arg fix "$fix" '{check: $name, ok: ($ok == "ok"), detail: $detail, fix: $fix}')")
+    [ "$ok" = ok ] || fails=$((fails + 1))
+    if [ "$JSON" != 1 ]; then
+        if [ "$ok" = ok ]; then
+            echo "${C_OK}${SYM_OK}${C_OFF} $name — $detail"
+        else
+            echo "${C_BAD}${SYM_DEGRADED}${C_OFF} $name — $detail"
+            [ -n "$fix" ] && echo "   Fix: $fix"
+        fi
+    fi
+}
+
+# 1. Rollback safety net: the pinned install deployment must exist.
+if pinned_deployment_exists; then
+    check "rollback target" ok "pinned install deployment present"
+else
+    check "rollback target" FAIL "no pinned deployment — update and reset are disabled" \
+        "ostree admin pin 0   (pin the known-good deployment)"
+fi
+
+# 2. grubenv writable: greenboot's automatic rollback decrements boot_counter
+#    in grubenv. On btrfs that write fails silently, so verify actively.
+if command -v grub2-editenv >/dev/null 2>&1; then
+    if grub2-editenv /boot/grub2/grubenv list >/dev/null 2>&1 \
+        && touch /boot/.luke-write-test 2>/dev/null; then
+        rm -f /boot/.luke-write-test
+        check "boot counter" ok "grubenv readable and /boot writable"
+    else
+        check "boot counter" FAIL "grubenv is not usable — automatic rollback cannot work" \
+            "check that /boot is ext4 and mounted read-write (docs/errors.md#LUKE-E050)"
+    fi
+else
+    check "boot counter" skip "grub2-editenv not present (non-GRUB target)"
+fi
+
+# 3. Health checks (greenboot) currently green.
+if systemctl is-failed --quiet greenboot-healthcheck.service 2>/dev/null; then
+    check "health checks" FAIL "greenboot reports failure" \
+        "systemctl status greenboot-healthcheck"
+else
+    check "health checks" ok "greenboot green (or not yet run this boot)"
+fi
+
+# 4. Data volume mounted.
+if mountpoint -q /var/mnt/data 2>/dev/null; then
+    check "data volume" ok "/data mounted ($(du -sh /var/mnt/data 2>/dev/null | cut -f1 || echo '?'))"
+else
+    check "data volume" FAIL "/data is not mounted — shares are down" \
+        "systemctl status var-mnt-data.mount"
+fi
+
+# 5. Space. qgroups do not stop metadata exhaustion, so check unallocated
+#    space, not just free bytes. A full pool makes /var unwritable and kills
+#    the 'never dies' promise. On an ostree/composefs system / is a
+#    read-only overlay whose df numbers are meaningless — the real pool is
+#    at /sysroot.
+POOL=/sysroot
+mountpoint -q "$POOL" 2>/dev/null || POOL=/
+if command -v btrfs >/dev/null 2>&1 && btrfs filesystem usage -b "$POOL" >/dev/null 2>&1; then
+    unalloc=$(btrfs filesystem usage -b "$POOL" 2>/dev/null \
+        | awk '/unallocated:/ {print $3; exit}')
+    if [ -n "$unalloc" ] && [ "$unalloc" -lt $((2 * 1024 * 1024 * 1024)) ] 2>/dev/null; then
+        check "disk space" FAIL "under 2 GiB unallocated btrfs space — updates may fail" \
+            "delete data or add a disk; then: sudo btrfs balance start -dusage=50 $POOL"
+    else
+        check "disk space" ok "unallocated space healthy"
+    fi
+else
+    avail=$(df --output=avail -B1 "$POOL" 2>/dev/null | tail -1 | tr -d ' ')
+    if [ -n "$avail" ] && [ "$avail" -lt $((2 * 1024 * 1024 * 1024)) ]; then
+        check "disk space" FAIL "under 2 GiB free on $POOL" "free space, then re-run luke doctor"
+    else
+        check "disk space" ok "free space healthy"
+    fi
+fi
+
+# 6. Clock skew: a clock in the past makes TLS to the registry fail with
+#    misleading certificate errors.
+if command -v timedatectl >/dev/null 2>&1; then
+    if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ]; then
+        check "clock" ok "NTP synchronized"
+    else
+        check "clock" FAIL "clock is not NTP-synchronized — updates may fail TLS verification" \
+            "timedatectl set-ntp true"
+    fi
+fi
+
+# 7. Registry reachability (informational for update readiness).
+ref=$(image_ref)
+if skopeo inspect --format '{{.Digest}}' "docker://$ref" >/dev/null 2>&1; then
+    check "update registry" ok "${ref%%:*} reachable"
+else
+    check "update registry" FAIL "cannot reach $ref" \
+        "check network; then: luke update --check"
+fi
+
+if [ "$JSON" = 1 ]; then
+    printf '%s\n' "${results[@]}" | jq -s --arg fails "$fails" \
+        '{verdict: (if ($fails|tonumber) == 0 then "OK" else "DEGRADED" end), checks: .}'
+else
+    echo
+    if [ "$fails" = 0 ]; then
+        echo "${C_OK}${SYM_OK}${C_OFF} Verdict: OK"
+    else
+        echo "${C_BAD}${SYM_DEGRADED}${C_OFF} Verdict: DEGRADED ($fails failing)"
+    fi
+fi
+
+[ "$fails" = 0 ] && exit "$EXIT_OK" || exit "$EXIT_ERROR"

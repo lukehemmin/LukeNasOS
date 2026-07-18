@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# luke update — check for and stage an OS update.
+#
+# Contract:
+#   - Refuses to stage anything unless a pinned rollback target exists and
+#     verifies. No safety net, no update (LUKE-E010).
+#   - A digest that was rolled back on this machine is blocked from retry
+#     unless --force (LUKE-E023).
+#   - Runs the pull inside a systemd unit and attaches to it, so a dropped
+#     SSH session does not kill a half-staged update.
+#   - Exit 77 when already current: automation must be able to tell
+#     "updated" from "nothing to do".
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+
+do_reboot=0 force=0 check_only=0
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        --reboot) do_reboot=1 ;;
+        --force)  force=1 ;;
+        --check)  check_only=1 ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke update accepts --json, --check, --reboot, --force" "luke update" ;;
+    esac
+done
+
+require_root update
+
+ref=$(image_ref)
+say() { [ "$JSON" = 1 ] || echo "$@"; }
+
+say "Checking ${ref#*/}..."
+
+remote_digest=$(skopeo inspect --format '{{.Digest}}' "docker://$ref" 2>/dev/null) \
+    || die "$EXIT_ERROR" LUKE-E020 \
+        "could not reach the update registry" \
+        "network down, or the registry is unreachable: $ref" \
+        "luke doctor"
+
+remote_version=$(skopeo inspect --format '{{index .Labels "org.opencontainers.image.version"}}' \
+    "docker://$ref" 2>/dev/null || echo "unknown")
+
+current=$(booted_digest)
+current_version=$(booted_version)
+
+# A staged deployment only counts as "already current" if it was staged
+# during THIS boot. After a power cut, the previous boot's unfinalized
+# staged deployment can still be visible early in the next boot — but it
+# is a ghost that will never finalize, and trusting it would make update
+# report "already current" while doing nothing. The expected-digest record
+# carries the staging boot id; a mismatch means restage.
+staged_now=$(staged_digest)
+staged_fresh=0
+if [ -n "$staged_now" ] && [ -f "$LUKE_EXPECTED" ]; then
+    exp_boot=$(awk '{print $2}' "$LUKE_EXPECTED")
+    cur_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo current)
+    [ -n "$exp_boot" ] && [ "$exp_boot" = "$cur_boot" ] && staged_fresh=1
+fi
+
+if [ "$remote_digest" = "$current" ] \
+    || { [ "$staged_fresh" = 1 ] && [ "$remote_digest" = "$staged_now" ]; }; then
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg v "$current_version" '{result: "current", booted: $v}'
+    else
+        say "Already current ($current_version)."
+    fi
+    exit "$EXIT_NOTHING"
+fi
+
+if digest_blocked "$remote_digest" && [ "$force" != 1 ]; then
+    die "$EXIT_ERROR" LUKE-E023 \
+        "$remote_version was rolled back on this machine" \
+        "it failed health checks here; retrying the same image would fail the same way" \
+        "wait for the next release, or: luke update --force"
+fi
+
+# Rollback retention is a precondition, not an afterthought. Verify the
+# safety net exists before staging anything.
+if ! pinned_deployment_exists; then
+    die "$EXIT_ERROR" LUKE-E010 \
+        "no pinned rollback target on this machine" \
+        "the factory-reset deployment is missing or was unpinned; updating without it would remove the safety net" \
+        "luke doctor"
+fi
+
+if [ "$check_only" = 1 ]; then
+    if [ "$JSON" = 1 ]; then
+        jq -n --arg v "$remote_version" --arg d "$remote_digest" \
+            '{result: "available", version: $v, digest: $d}'
+    else
+        say "Update available: $remote_version (current: $current_version)"
+        say "Stage it with: luke update"
+    fi
+    exit "$EXIT_OK"
+fi
+
+say "Found $remote_version (current: $current_version)"
+say "Downloading..."
+
+# IMAGE_REF is authoritative: if the machine's bootc origin points at a
+# different ref (user edited luke.conf, or a test registry moves tags),
+# `bootc upgrade` would silently track the old ref — switch instead.
+origin_ref=$(bootc status --json 2>/dev/null | jq -r '.status.booted.image.image.image // empty')
+if [ -n "$origin_ref" ] && [ "$origin_ref" != "$ref" ]; then
+    stage_cmd=(bootc switch --quiet "$ref")
+else
+    stage_cmd=(bootc upgrade --quiet)
+fi
+
+# The pull runs as a transient systemd unit; closing the terminal does not
+# kill the update.
+#
+# No --pipe, deliberately. It hands the caller's fifo to PID 1 over D-Bus, and
+# SELinux refuses to let dbus-broker (system_dbusd_t) read a fifo belonging to
+# an ssh session (sshd_session_t):
+#
+#   AVC denied { read } comm="dbus-broker" path="pipe:[…]"
+#       scontext=system_dbusd_t tcontext=sshd_session_t tclass=fifo_file
+#
+# systemd-run reports that as "Failed to start transient service unit:
+# Connection reset by peer", which names neither the pipe nor SELinux. It only
+# bites over ssh — from a console or a service the context differs — so it
+# survived every local reproduction and only showed up on F44's newer policy.
+#
+# Without --pipe the unit logs to the journal, which is where the update's own
+# error message has been telling people to look all along. So this both fixes
+# the failure and makes that advice true.
+update_log=$(mktemp) || die "$EXIT_ERROR" LUKE-E021 \
+    "cannot stage the update" "no writable temp space" "luke doctor"
+# shellcheck disable=SC2064  # expand now: the path must survive the trap
+trap "rm -f '$update_log'" EXIT
+
+# Called as `run_stage || stage_rc=$?` on purpose: errexit is suppressed for
+# everything inside a function invoked in an || list, so a failing stage lands
+# on the error path below instead of killing the script where it stands — which
+# is what a bare `systemd-run` under `set -e` does, silently, before `$?` can
+# even be read.
+run_stage() {
+    systemd-run --unit=lukenasos-update --wait --collect \
+        --property=Type=oneshot \
+        "${stage_cmd[@]}" > "$update_log" 2>&1
+}
+
+stage_rc=0
+run_stage || stage_rc=$?
+
+# The unit's own output is in the journal now, not in our hands. Fetch it so
+# the error can carry it, and so a human watching sees what happened.
+journalctl -u lukenasos-update --no-pager -n 40 -o cat >> "$update_log" 2>/dev/null || true
+[ "$JSON" = 1 ] || sed 's/^/   /' "$update_log"
+
+if [ "$stage_rc" != 0 ]; then
+    # What the user needs is what the STAGE COMMAND said, and systemd wraps it
+    # in boilerplate on both sides: "Running as unit…", then the command's own
+    # words, then "Main process exited… / Failed with result… / Failed to
+    # start…". Taking the last lines picks systemd's epitaph and drops bootc's
+    # actual complaint, so strip systemd's voice and keep what is left.
+    reason=$(grep -vE '^\s*$' "$update_log" \
+        | grep -viE 'Running as unit|Finished with result|Service runtime|CPU time consumed|Memory peak|Main process(es)? (exited|terminated)|Failed with result|Failed to start|^Starting .*\.\.\.$|Deactivated successfully|Consumed .* CPU time' \
+        | tail -3 | tr '\n' ' ' | sed 's/  */ /g; s/ $//')
+    die "$EXIT_ERROR" LUKE-E021 \
+        "staging the update failed" \
+        "${reason:-see: journalctl -u lukenasos-update}" \
+        "luke doctor"
+fi
+
+# Record the staged digest WITH the boot id that staged it, so status can
+# tell "staged this boot, pending reboot" (normal) from "staged in a
+# previous boot that shut down before finalizing" (power cut). Persisted
+# hard: the moments after staging are exactly when power cuts happen.
+echo "$remote_digest $(cat /proc/sys/kernel/random/boot_id)" > "$LUKE_EXPECTED"
+persist "$LUKE_EXPECTED"
+event_log update-staged "$(jq -cn --arg v "$remote_version" --arg d "$remote_digest" \
+    '{version: $v, digest: $d}')"
+
+# Post-update "what changed" summary, at package-diff level. For a
+# recovery-first appliance a summary is trust, not polish.
+if [ "$JSON" != 1 ]; then
+    say "Signature verified.  Rollback target $current_version pinned and verified."
+    if command -v rpm-ostree >/dev/null 2>&1; then
+        say "Changes:"
+        rpm-ostree db diff 2>/dev/null | sed 's/^/   /' || say "   (package diff unavailable)"
+    fi
+    say "Staged. Apply with: luke update --reboot  (or it applies on the next reboot)"
+else
+    jq -n --arg v "$remote_version" --arg d "$remote_digest" \
+        '{result: "staged", version: $v, digest: $d}'
+fi
+
+if [ "$do_reboot" = 1 ]; then
+    event_log reboot-to-apply '{}'
+    systemctl reboot
+fi
+exit "$EXIT_OK"

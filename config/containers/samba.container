@@ -1,0 +1,50 @@
+# The M1 NAS slice: one Samba container serving the shares on /data. Quadlet
+# unit — podman generates samba.service from this at boot.
+#
+# This is the demo's protagonist: a file written through this share must
+# survive update → deliberate break → automatic rollback → factory reset.
+# Container state lives on @data (via /var/mnt/data), so a factory reset
+# that wipes OS state does not touch the share's contents.
+#
+# Accounts and shares are NOT configured here. They come from samba.env, which
+# `luke setup share` writes into the identity capsule on /data and
+# lukenasos-identity.service regenerates on every boot. Two reasons, and both
+# were learned by this file getting it wrong:
+#
+#   - This unit used to carry `ACCOUNT_luke=changeme-on-first-login`: a password
+#     identical on every LukeNasOS install, baked into the image, for an account
+#     the setup wizard retires. It was unreachable only because SPEC §9 keeps 445
+#     shut — the day `luke setup share` opens that port is the day it would have
+#     become a well-known way in. The Containerfile has said "never bake
+#     credentials" since the first commit; the credential was next door.
+#   - A share defined in the image cannot know the user's account, and a share
+#     defined in /etc does not survive the factory reset whose whole promise is
+#     that the shares come back (SPEC §5.2).
+
+[Unit]
+Description=LukeNasOS Samba share (M1 NAS slice)
+After=var-mnt-data.mount lukenasos-identity.service
+Requires=var-mnt-data.mount
+# No share, no Samba. Until the wizard creates one there is nothing to serve
+# and port 445 is shut, so starting the container would only mean a file server
+# waiting for someone to open the door.
+ConditionPathExists=/var/mnt/data/.lukenasos/samba.env
+
+[Container]
+# TODO(M1): pin by digest in CI before the first release.
+Image=ghcr.io/servercontainers/samba:latest
+ContainerName=lukenasos-samba
+Network=host
+Volume=/var/mnt/data/share:/share:Z
+# systemd parses this file, and it takes the rest of the line as the value —
+# which is why the share definitions in it need none of the quoting that
+# Environment= did (quadlet splits those on whitespace, and bare tokens like `=`
+# came back as "invalid variable" and a 125 crash loop on first boot).
+EnvironmentFile=/var/mnt/data/.lukenasos/samba.env
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

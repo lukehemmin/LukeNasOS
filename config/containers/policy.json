@@ -1,0 +1,44 @@
+{
+    "default": [
+        {
+            "type": "reject"
+        }
+    ],
+    "transports": {
+        "docker": {
+            "ghcr.io/lukehemmin/lukenasos": [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPath": "/etc/lukenasos/cosign.pub",
+                    "signedIdentity": {
+                        "type": "matchRepository"
+                    }
+                }
+            ],
+            "localhost:5000": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "docker-daemon": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "containers-storage": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        }
+    }
+}

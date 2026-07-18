@@ -1,37 +1,10 @@
-# Python / Flask
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.env
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Live Build Artifacts & Work Directory
-iso_build/live-build-work/
+build/
+*.qcow2
+*.raw
 *.iso
 *.img
-
-# System / IDE
 .DS_Store
-.vscode/
-.idea/
-*.swp
-*~
-certs/
-.gemini/
-
-# Node.js / Frontend
-node_modules/
-web_ui/frontend/node_modules/
-web_ui/frontend/dist/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm/
-coverage/
-.eslintcache
+tests/wizard-e2e/node_modules/
+tests/wizard-e2e/screens/
+tests/wizard-e2e/test-results/
+tests/wizard-e2e/package-lock.json

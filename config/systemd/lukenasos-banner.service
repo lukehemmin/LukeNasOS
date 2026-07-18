@@ -1,0 +1,14 @@
+[Unit]
+Description=LukeNasOS console banner (verdict, version, next steps)
+Documentation=https://github.com/lukehemmin/LukeNasOS
+After=lukenasos-boot-check.service
+Before=getty@tty1.service serial-getty@ttyS0.service
+Wants=lukenasos-boot-check.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/lukenasos/banner
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

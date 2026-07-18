@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# unlock-console — reveal the stock Cockpit pages, deliberately, on the record.
+#
+# Product mode hides Cockpit's own pages (SPEC §6, decision 5.3A): one click
+# in the storage pages can repartition the contract disk, one in the systemd
+# page can disable greenboot — each a guarantee this OS exists to keep,
+# voidable from a browser. The hiding is menu-override files in /etc/cockpit,
+# shipped in the image; this verb removes them for the owner who knows what
+# they are doing, and logs that it happened.
+#
+# It reads the same page list the image wrote the overrides from
+# (/usr/share/lukenasos/cockpit-hidden-pages), so this verb and the
+# Containerfile can never disagree about what "locked" means — and so it
+# never touches an override the owner made themselves.
+#
+# A factory reset ships the overrides back with the fresh /etc: locked is the
+# factory state, and unlocking is a live decision, not a surviving one.
+
+set -o errexit -o nounset -o pipefail
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+# Env seams for the test suite.
+LUKE_COCKPIT_CONF_DIR="${LUKE_COCKPIT_CONF_DIR:-/etc/cockpit}"
+LUKE_HIDDEN_PAGES="${LUKE_HIDDEN_PAGES:-/usr/share/lukenasos/cockpit-hidden-pages}"
+
+parse_common_flags "$@"
+[ ${#PARSED_ARGS[@]} -eq 0 ] || die "$EXIT_USAGE" LUKE-E002 \
+    "unknown option '${PARSED_ARGS[0]}'" \
+    "luke unlock-console takes no options beyond --json" \
+    "luke unlock-console"
+require_root unlock-console
+
+removed=()
+if [ -f "$LUKE_HIDDEN_PAGES" ]; then
+    while IFS= read -r page; do
+        [ -n "$page" ] || continue
+        f="$LUKE_COCKPIT_CONF_DIR/$page.override.json"
+        if [ -f "$f" ]; then
+            rm -f "$f"
+            removed+=("$page")
+        fi
+    done < "$LUKE_HIDDEN_PAGES"
+fi
+
+if [ ${#removed[@]} -eq 0 ]; then
+    if [ "$JSON" = 1 ]; then
+        jq -n '{result: "already-unlocked"}'
+    else
+        echo "${C_OK}${SYM_OK}${C_OFF} Nothing to do: the console is already unlocked."
+    fi
+    exit "$EXIT_NOTHING"
+fi
+
+# On the record before it is reported: the whole point of an explicit verb
+# over "just delete the files" is that the machine's history says who opened
+# the machine room, and when.
+event_log console_unlocked \
+    "$(printf '%s\n' "${removed[@]}" | jq -R . | jq -cs '{pages: .}')"
+
+if [ "$JSON" = 1 ]; then
+    printf '%s\n' "${removed[@]}" | jq -R . \
+        | jq -s '{result: "unlocked", pages: .}'
+else
+    echo "${C_WARN}${SYM_RECOVERED}${C_OFF} Console unlocked: ${#removed[@]} stock Cockpit pages revealed."
+    echo "   Reload the browser page to see them."
+    echo "   Careful in there: the storage and services pages can undo the"
+    echo "   guarantees this OS makes (SPEC §6). A factory reset locks them again."
+fi

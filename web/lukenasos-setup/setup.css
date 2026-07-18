@@ -1,0 +1,236 @@
+/* LukeNasOS wizard — step 1.
+ *
+ * Visual posture (design finding 4.3): stock-plain, wordmark plus structure,
+ * no palette invention — the full visual system waits for DESIGN.md. Theme
+ * follows the OS preference AND the Cockpit shell's explicit toggle: the
+ * shell stamps a *theme-dark class on each frame's <html>, and that has to
+ * win over prefers-color-scheme in both directions.
+ *
+ * Mobile-first (finding 5.2): the first-contact device is a phone standing
+ * next to the NAS. Inputs are full-width, touch targets ≥44px, and the step
+ * pills compress to one line at ≤480px.
+ */
+
+:root {
+    --bg: #f2f3f5;
+    --card: #ffffff;
+    --text: #151515;
+    --muted: #6a6e73;
+    --line: #d2d2d2;
+    --accent: #0066cc;
+    --accent-text: #ffffff;
+    --danger: #c9190b;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1b1d21;
+        --card: #26292d;
+        --text: #f0f0f0;
+        --muted: #a2a6ab;
+        --line: #444548;
+        --accent: #4394e5;
+        --accent-text: #101214;
+        --danger: #f0561d;
+    }
+}
+html[class*="theme-dark"] {
+    --bg: #1b1d21;
+    --card: #26292d;
+    --text: #f0f0f0;
+    --muted: #a2a6ab;
+    --line: #444548;
+    --accent: #4394e5;
+    --accent-text: #101214;
+    --danger: #f0561d;
+}
+html[class*="theme-light"] {
+    --bg: #f2f3f5;
+    --card: #ffffff;
+    --text: #151515;
+    --muted: #6a6e73;
+    --line: #d2d2d2;
+    --accent: #0066cc;
+    --accent-text: #ffffff;
+    --danger: #c9190b;
+}
+
+* { box-sizing: border-box; }
+
+/* The hidden attribute must always win. The browser's own [hidden] rule is
+   only `display: none` at UA priority, and any author display (the strip's
+   flex, the interstitial's flex) silently defeats it — which put the
+   sign-out overlay over the whole page from the first paint (caught by the
+   browser E2E's aria snapshot on its first real run). */
+[hidden] { display: none !important; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "RedHatText", "Open Sans", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+}
+
+.wizard {
+    max-width: 660px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.wordmark h1 {
+    font-size: 1.4rem;
+    letter-spacing: 0.02em;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.pills { margin: 0 0 1rem; }
+.pill {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    margin-right: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+.pill.current {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+.pills-compact { display: none; color: var(--muted); margin: 0 0 1rem; }
+@media (max-width: 480px) {
+    .pills { display: none; }
+    .pills-compact { display: block; }
+}
+
+/* The health strip: one line of recovery truth above every step. Stacks on
+   phones (design finding 5.2). Color reinforces, never carries alone — the
+   symbol and the words are the meaning. */
+.strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0 0 1rem;
+}
+.seg {
+    padding: 0.15rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+.seg.ok    { border-color: #3e8635; color: #3e8635; }
+.seg.warn  { border-color: #f0ab00; color: #795600; }
+.seg.bad   { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+html[class*="theme-dark"] .seg.ok   { border-color: #5ba352; color: #5ba352; }
+html[class*="theme-dark"] .seg.warn { border-color: #f0ab00; color: #f0ab00; }
+@media (prefers-color-scheme: dark) {
+    .seg.ok   { border-color: #5ba352; color: #5ba352; }
+    .seg.warn { border-color: #f0ab00; color: #f0ab00; }
+}
+html[class*="theme-light"] .seg.ok   { border-color: #3e8635; color: #3e8635; }
+html[class*="theme-light"] .seg.warn { border-color: #f0ab00; color: #795600; }
+@media (max-width: 480px) {
+    .strip { flex-direction: column; }
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1.25rem;
+}
+.card h2 { margin-top: 0; font-size: 1.15rem; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
+code { font-size: 0.85em; word-break: break-all; }
+
+label { display: block; margin: 1rem 0 0.25rem; font-weight: 600; }
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    min-height: 44px;
+    padding: 0.4rem 0.6rem;
+    font-size: 1rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+}
+input[type="text"]:focus,
+input[type="password"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.pwrow { display: flex; gap: 0.5rem; }
+.pwrow input { flex: 1; }
+.pwrow button {
+    min-height: 44px;
+    padding: 0 1rem;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+kbd {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 0 0.3em;
+    font-size: 0.85em;
+}
+
+.field-error { color: var(--danger); font-size: 0.9rem; margin: 0.25rem 0 0; }
+
+button[type="submit"] {
+    margin-top: 1.25rem;
+    min-height: 44px;
+    width: 100%;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent-text);
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+button[type="submit"]:disabled { opacity: 0.6; cursor: default; }
+@media (min-width: 481px) {
+    button[type="submit"] { width: auto; padding: 0 1.5rem; }
+}
+
+.spinner {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-left: 0.4em;
+    vertical-align: -0.15em;
+    border: 2px solid currentcolor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+
+.card h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; }
+.share-list { margin: 0; padding-left: 1.25rem; }
+.share-list li { margin: 0.25rem 0; }
+
+.interstitial {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+.interstitial-card { max-width: 480px; text-align: center; }

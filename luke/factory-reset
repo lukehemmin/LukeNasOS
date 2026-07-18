@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# luke factory-reset — return the OS to its install-time deployment.
+# /data survives by design; the screen says so before and after.
+#
+# Mechanism (see SPEC.md §"Factory reset"): the install deployment is pinned
+# with `ostree admin pin` at install time, so it can never be garbage
+# collected. Reset = redeploy that pinned commit + clear machine state under
+# /var and /etc, leaving @data untouched. The @seed OCI archive is the
+# disaster-recovery fallback when even the ostree repo is damaged.
+#
+# The destructive verb is long on purpose, and confirmation is typing the
+# hostname, not y/n.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+
+assume_yes=0
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        --yes-i-typed-the-hostname) assume_yes=1 ;;   # for the E2E harness only
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke factory-reset takes no options" "luke factory-reset" ;;
+    esac
+done
+
+require_root factory-reset
+
+pinned_deployment_exists || die "$EXIT_ERROR" LUKE-E040 \
+    "no pinned install deployment found" \
+    "the factory-reset target is missing; this machine cannot reset safely" \
+    "luke doctor"
+
+DATA_MOUNT="/var/mnt/data"
+data_size="?" data_files="?"
+if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+    data_size=$(du -sh "$DATA_MOUNT" 2>/dev/null | cut -f1 || echo "?")
+    data_files=$(find "$DATA_MOUNT" -xdev -type f 2>/dev/null | wc -l | tr -d ' ')
+fi
+
+hostname=$(hostname)
+
+if [ "$JSON" != 1 ]; then
+    echo "Factory reset will:"
+    echo "   preserved: /data ${data_size} (${data_files} files)"
+    echo "   cleared:   OS config, apps, network settings"
+    echo
+    echo "The OS returns to its install version. Your files are not touched."
+    echo
+fi
+
+if [ "$assume_yes" != 1 ]; then
+    if [ "$JSON" = 1 ]; then
+        die "$EXIT_ERROR" LUKE-E041 \
+            "factory reset needs interactive confirmation" \
+            "--json implies automation, and automation must not reset machines implicitly" \
+            "run interactively, or pass --yes-i-typed-the-hostname in a test harness"
+    fi
+    printf "Type the hostname (%s) to confirm: " "$hostname"
+    read -r answer
+    if [ "$answer" != "$hostname" ]; then
+        echo "Hostname mismatch. Nothing was changed."
+        exit "$EXIT_ERROR"
+    fi
+fi
+
+# Identity capsule: preserving bytes while wiping users, UID/GID maps, share
+# definitions, and SSH host keys leaves data present but inaccessible.
+# Capture what makes the data usable, on the data volume itself.
+CAPSULE="$DATA_MOUNT/.lukenasos"
+mkdir -p "$CAPSULE"
+getent passwd  > "$CAPSULE/passwd.snapshot"    2>/dev/null || true
+getent group   > "$CAPSULE/group.snapshot"     2>/dev/null || true
+cp -a /etc/ssh/ssh_host_*_key* "$CAPSULE/"     2>/dev/null || true
+cp -a /etc/samba/smb.conf "$CAPSULE/"          2>/dev/null || true
+event_log factory-reset-started "$(jq -cn --arg size "$data_size" '{data: $size}')"
+
+# Redeploy the pinned commit — with --no-merge, which is what makes "cleared:
+# OS config" true. Without it, `ostree admin deploy` 3-way merges /etc from
+# the booted deployment into the new one ("Copying /etc changes: 13 modified,
+# 11 removed, 40 added" in the deploy output was the confession): accounts,
+# lock states, added and DELETED files all rode across, and this comment used
+# to claim "fresh /etc from the commit's defaults" over a command that did no
+# such thing. Caught by the lifecycle asserting an unlocked console re-locks
+# after reset — the deleted override files' deletion was faithfully merged
+# into the "fresh" /etc. Machine state under /var/lib is cleared selectively
+# below.
+#
+# --karg-proc-cmdline is not optional beside it: --no-merge also refuses the
+# booted deployment's KERNEL ARGUMENTS, and with no other source the new
+# deployment's BLS entry gets none — no root=, an initramfs with nowhere to
+# go, a factory reset that bricks the boot (read from the ostree source, not
+# discovered on a machine). The live /proc/cmdline is the right source: the
+# disk layout did not change, BOOT_IMAGE=/initrd= are filtered by ostree, and
+# the deploy path replaces ostree= with the new deployment's own.
+# Parse by shape, not position: the checksum is the only 64-hex token (with
+# a .N deploy serial) on a deployment line, and "Pinned: yes" refers to the
+# deployment line most recently seen above it. A positional parse here once
+# extracted the literal string "yes" and fed it to ostree as a refspec.
+pinned_checksum=$(ostree admin status | awk '
+    { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]{64}(\.[0-9]+)?$/) cs = $i }
+    /^[[:space:]]*Pinned: yes/ { sub(/\.[0-9]+$/, "", cs); print cs; exit }')
+[ -n "$pinned_checksum" ] || die "$EXIT_ERROR" LUKE-E042 \
+    "could not identify the pinned deployment" \
+    "ostree admin status output did not parse" \
+    "ostree admin status   (then file an issue with the output)"
+
+stateroot=$(ostree admin status | awk '/^\*/ {print $2; exit}' || echo default)
+stateroot=${stateroot:-default}
+
+# Carry the install deployment's origin over. Deploying a bare checksum
+# leaves the new deployment origin-less: bootc then reports the booted
+# version as unknown and refuses to manage updates — the reset would work
+# once and strand the machine.
+origin_args=()
+# shellcheck disable=SC2012
+pinned_origin=$(ls "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*.origin 2>/dev/null | head -1)
+[ -n "$pinned_origin" ] && origin_args=(--origin-file "$pinned_origin")
+
+ostree admin deploy --no-merge --karg-proc-cmdline --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
+    || die "$EXIT_ERROR" LUKE-E043 \
+        "deploying the pinned install image failed" \
+        "see: journalctl -b" \
+        "luke doctor"
+
+# The disk's own plumbing rides along, the way the kernel arguments do: the
+# image's /etc has no fstab — anaconda wrote it at install — and without it
+# /boot and /boot/efi never mount on the reset boot. Everything that touches
+# them then falls over in a row: bootupd, grub2-editenv (the rollback
+# trigger), the ostree sysroot half-loads, `bootc status` errors, and the
+# banner dies of that error through pipefail (all observed on one lifecycle
+# reset boot). The layout is the machine, not the configuration.
+# shellcheck disable=SC2012  # deployment dirs are ostree-named, never exotic
+new_dep_dir=$(ls -d "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*/ 2>/dev/null \
+    | sed 's:/*$::' | awk -F. '{print $NF, $0}' | sort -n | awk 'END {print $2}')
+if [ -n "$new_dep_dir" ]; then
+    # /sysroot is mounted read-only on bootc systems: nothing is supposed to
+    # edit a deployment from outside, and this copy is the one sanctioned
+    # exception — so it does what ostree itself does, remounts rw for exactly
+    # as long as it writes, and puts it back. Written via /sysroot, not
+    # /ostree: they are separate mounts of the same tree, and only this one
+    # is being made writable.
+    remounted=0
+    if findmnt -no OPTIONS /sysroot 2>/dev/null | grep -qw ro; then
+        mount -o remount,rw /sysroot && remounted=1
+    fi
+    for f in fstab crypttab; do
+        if [ -f "/etc/$f" ]; then
+            cp -a "/etc/$f" "/sysroot$new_dep_dir/etc/$f" || die "$EXIT_ERROR" LUKE-E044 \
+                "could not carry /etc/$f into the reset deployment" \
+                "without the mount table, the reset boot never mounts /boot and half the OS tooling fails" \
+                "re-run luke factory-reset; luke doctor if it repeats"
+        fi
+    done
+    if [ "$remounted" = 1 ]; then
+        mount -o remount,ro /sysroot 2>/dev/null || true
+    fi
+fi
+
+# Clear app/OS machine state but keep the ostree repo, the event journal,
+# and /data. Containers are redeployed from quadlet units on next boot.
+rm -rf /var/lib/containers/storage 2>/dev/null || true
+
+# A reset is a fresh start for the recovery ledger too: drop the RECOVERED
+# verdict and staging bookkeeping. The digest block list survives — images
+# that failed on this hardware are still bad after a reset — and the full
+# history stays in the event journal.
+rm -f "$LUKE_ROLLBACK_CAUSE" "$LUKE_STATE_DIR/recovered-acked" \
+      "$LUKE_EXPECTED" "$LUKE_STATE_DIR/pending-rollback.json"
+# The wizard's bookmark too: a reset machine re-runs the wizard, and a
+# surviving bookmark would resume its owner into the middle of a setup flow
+# for a machine that no longer is set up. (It lives in /var/lib, which this
+# verb clears selectively — so "selectively" has to remember it.)
+rm -f "$LUKE_STATE_DIR/wizard-step"
+
+event_log factory-reset-deployed "$(jq -cn --arg cs "$pinned_checksum" '{checksum: $cs}')"
+# The first boot after reset shows "your data survived" with the size —
+# that screen is the advertisement. Marker consumed by the banner unit.
+echo "{\"data_size\": \"$data_size\", \"data_files\": \"$data_files\"}" \
+    > "$LUKE_STATE_DIR/reset-proof.json"
+
+if [ "$JSON" = 1 ]; then
+    jq -n --arg size "$data_size" '{result: "reset-staged", data_preserved: $size}'
+else
+    echo "${C_OK}${SYM_OK}${C_OFF} Reset staged. Reboot to finish: systemctl reboot"
+    echo "   Your data (${data_size}) is preserved and will be verified on first boot."
+fi
+exit "$EXIT_OK"

@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# identity-apply — project the identity capsule onto this deployment.
+#
+# Not a verb: lukenasos-identity.service runs it on every boot, the way banner
+# and boot-check run. There is nothing here a user needs to invoke, and quite a
+# lot they should not.
+#
+# SPEC §5.2 promises a factory reset preserves "users, UID/GID, share
+# definitions" while it clears /etc. Both halves of that sentence are true only
+# if something writes the users back into the fresh /etc afterwards. This is
+# that something, and without it the reset's own headline — your data survived —
+# would be delivered to a machine the owner can no longer log into.
+#
+# It runs on every boot rather than only after a reset, because "the /etc under
+# me is not the one I configured" has more than one cause: a factory reset, a
+# boot disk moved into a new machine, an update that rebased /etc. The capsule
+# on /data is the truth and /etc is a projection of it; converging every boot
+# means none of those cases needs to be detected, or can be missed.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+NFT_DIR="${LUKE_NFT_DIR:-/etc/lukenasos/nftables.d}"
+HOSTNAME_FILE="${LUKE_HOSTNAME_FILE:-/etc/hostname}"
+SSH_DIR="${LUKE_SSH_DIR:-/etc/ssh}"
+COCKPIT_CONF_DIR="${LUKE_COCKPIT_CONF_DIR:-/etc/cockpit}"
+
+[ -d "$LUKE_CAPSULE" ] || exit 0
+
+changed=0
+note() { changed=1; echo "identity: $*"; }
+
+# ── the machine's ssh identity ────────────────────────────────────────────
+# A factory reset clears /etc, so sshd-keygen makes fresh host keys and every
+# client that ever trusted this machine greets its return with
+#
+#   @@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@
+#   Someone could be eavesdropping on you right now!
+#
+# — ssh's loudest possible warning, produced by the recovery feature, on a
+# product whose whole claim is that recovery is safe. SPEC §5.2 lists the host
+# keys among what survives, and `luke factory-reset` has copied them into the
+# capsule since the beginning. Nothing ever copied them back, so the promise was
+# half-built: the capture without the restore.
+#
+# Captured here too, not only at reset time, because a reset is not the only way
+# to meet a fresh /etc — moving the boot disk into a new machine is the other,
+# and no reset ran there to capture anything.
+sync_host_keys() {
+    local k base restored=0
+    if ls "$LUKE_CAPSULE"/ssh_host_*_key >/dev/null 2>&1; then
+        for k in "$LUKE_CAPSULE"/ssh_host_*; do
+            base=$(basename "$k")
+            cmp -s "$k" "$SSH_DIR/$base" && continue
+            cp -a "$k" "$SSH_DIR/$base" && restored=1
+        done
+        if [ "$restored" = 1 ]; then
+            note "ssh host identity restored — clients will not be warned"
+            # try-restart, NOT restart. This unit is ordered before the
+            # sshd-keygen units, and a synchronous restart from inside it
+            # deadlocks the boot: sshd's start waits for the keygen units,
+            # the keygen units wait for this unit to finish, and this unit
+            # sits in `systemctl restart sshd` — a runtime wait cycle the
+            # ordering-cycle detector never sees. Observed as a reset boot
+            # parked at "fedora login:" forever (cost: one full run; the
+            # systemctl stub in the unit tests, as ever, saw nothing wrong).
+            # try-restart is a no-op while sshd has not started yet — it
+            # starts later, with these keys — and still bounces a running
+            # sshd when this script runs by hand on a live machine.
+            systemctl try-restart sshd.service >/dev/null 2>&1 || true
+        fi
+    else
+        cp -a "$SSH_DIR"/ssh_host_*_key "$SSH_DIR"/ssh_host_*_key.pub "$LUKE_CAPSULE/" 2>/dev/null || true
+        chmod 0600 "$LUKE_CAPSULE"/ssh_host_*_key 2>/dev/null || true
+        note "ssh host identity captured"
+    fi
+}
+sync_host_keys
+
+# ── the machine's name ────────────────────────────────────────────────────
+
+if [ -f "$LUKE_CAPSULE/hostname" ]; then
+    want=$(cat "$LUKE_CAPSULE/hostname")
+    have=$(cat "$HOSTNAME_FILE" 2>/dev/null || true)
+    if [ -n "$want" ] && [ "$want" != "$have" ]; then
+        hostnamectl set-hostname "$want" && note "hostname restored: $want"
+    fi
+fi
+
+# ── the people ────────────────────────────────────────────────────────────
+
+for f in "$LUKE_CAPSULE"/accounts/*.json; do
+    [ -e "$f" ] || continue
+    name=$(jq -r '.name' "$f")
+    uid=$(jq -r '.uid' "$f")
+    gid=$(jq -r '.gid' "$f")
+    hash=$(jq -r '.hash' "$f")
+    shell=$(jq -r '.shell // "/bin/bash"' "$f")
+    home=$(jq -r '.home' "$f")
+
+    if ! getent passwd "$name" >/dev/null 2>&1; then
+        # The uid is restored, not reassigned. Every file this user owns on
+        # /data is owned by a number, and a user recreated with a different one
+        # is a stranger to their own files — the reset would preserve the bytes
+        # and hand them to nobody.
+        getent group "$gid" >/dev/null 2>&1 || groupadd --gid "$gid" "$name" || true
+        useradd --uid "$uid" --gid "$gid" --home-dir "$home" --create-home \
+                --shell "$shell" --comment "LukeNasOS administrator" "$name" \
+            || { echo "identity: FAILED to recreate '$name'" >&2; exit 1; }
+        printf '%s:%s\n' "$name" "$hash" | chpasswd -e \
+            || { echo "identity: FAILED to restore the password for '$name'" >&2; exit 1; }
+        chage -d "$(date -u +%Y-%m-%d)" "$name" >/dev/null 2>&1 || true
+        note "account restored: $name (uid $uid)"
+    fi
+
+    # Group membership is /etc state too, so it is re-asserted rather than
+    # assumed: a user restored without wheel cannot sudo, and cannot use the
+    # Cockpit page that would fix it.
+    mapfile -t groups < <(jq -r '.groups[]' "$f")
+    for g in "${groups[@]+"${groups[@]}"}"; do
+        id -nG "$name" 2>/dev/null | tr ' ' '\n' | grep -qx "$g" \
+            || { usermod --append --groups "$g" "$name" && note "$name added to $g"; }
+    done
+
+    keys=$(jq -r '.authorized_keys[]?' "$f")
+    if [ -n "$keys" ] && [ ! -s "$home/.ssh/authorized_keys" ]; then
+        install -d -m 0700 -o "$name" -g "$name" "$home/.ssh"
+        printf '%s\n' "$keys" > "$home/.ssh/authorized_keys"
+        chown "$name:$name" "$home/.ssh/authorized_keys"
+        chmod 0600 "$home/.ssh/authorized_keys"
+        note "ssh keys restored for $name"
+    fi
+    admin_restored=1
+done
+
+# An administrator exists, so the installer's account has no job left. Worth
+# re-asserting every boot and not just at restore time: a fresh /etc brings
+# 'luke' back unlocked, holding the setup token's password, and `luke setup
+# account` is never going to run a second time to retire it. A machine whose
+# data survived a reset must not come back reachable by the password printed on
+# a screen months ago.
+if [ "${admin_restored:-0}" = 1 ] \
+    && getent passwd "$LUKE_DEFAULT_USER" >/dev/null 2>&1 \
+    && [ "$(passwd -S "$LUKE_DEFAULT_USER" 2>/dev/null | awk '{print $2}')" = "P" ]; then
+    usermod --lock --expiredate 1 "$LUKE_DEFAULT_USER" \
+        && note "installer account '$LUKE_DEFAULT_USER' retired again"
+fi
+
+# The Cockpit login hint is /etc too, so the fresh /etc holds the image's
+# fresh-install text — "sign in as luke with the token" — which stopped being
+# true the moment an administrator was restored above. Same reason as the
+# retirement: never let a reset resurrect the installer-era story.
+if [ "${admin_restored:-0}" = 1 ] && [ -d "$COCKPIT_CONF_DIR" ]; then
+    printf 'Sign in with your account name and password.\n' \
+        > "$COCKPIT_CONF_DIR/issue.cockpit" 2>/dev/null || true
+fi
+
+# ── the shares ────────────────────────────────────────────────────────────
+# samba.env and the SMB rule are generated from the capsule, so they are
+# rewritten here rather than restored: whatever /etc has, the capsule wins.
+
+have_share=0
+for f in "$LUKE_CAPSULE"/shares/*.json; do
+    [ -e "$f" ] || continue
+    have_share=1
+    name=$(jq -r '.name' "$f")
+    path=$(jq -r '.path' "$f")
+    owner=$(jq -r '.valid_users[0]' "$f")
+    [ -d "$path" ] || { install -d -m 0770 -o "$owner" -g "$owner" "$path" \
+        && note "share directory recreated: $path"; }
+done
+
+render_samba_env() {
+    local f u h uid s vu
+    {
+        echo "# Generated by lukenasos-identity.service from the capsule."
+        echo "SAMBA_CONF_LOG_LEVEL=1"
+        for f in "$LUKE_CAPSULE"/accounts/*.json; do
+            [ -e "$f" ] || continue
+            h=$(jq -r '.samba_hash // empty' "$f")
+            [ -n "$h" ] || continue
+            u=$(jq -r '.name' "$f"); uid=$(jq -r '.uid' "$f")
+            printf 'ACCOUNT_%s=%s\n' "$u" "$h"
+            printf 'UID_%s=%s\n' "$u" "$uid"
+        done
+        for f in "$LUKE_CAPSULE"/shares/*.json; do
+            [ -e "$f" ] || continue
+            s=$(jq -r '.name' "$f")
+            vu=$(jq -r '.valid_users | join(", ")' "$f")
+            printf 'SAMBA_VOLUME_CONFIG_%s=[%s]; path=/share/%s; valid users = %s; guest ok = no; read only = no; browseable = yes\n' \
+                "$s" "$s" "$s" "$vu"
+        done
+    } > "$LUKE_CAPSULE/.samba.env.new"
+    chmod 0600 "$LUKE_CAPSULE/.samba.env.new"
+    if ! cmp -s "$LUKE_CAPSULE/.samba.env.new" "$LUKE_CAPSULE/samba.env" 2>/dev/null; then
+        mv -f "$LUKE_CAPSULE/.samba.env.new" "$LUKE_CAPSULE/samba.env"
+        persist "$LUKE_CAPSULE/samba.env"
+        note "samba configuration regenerated"
+    else
+        rm -f "$LUKE_CAPSULE/.samba.env.new"
+    fi
+}
+
+if [ "$have_share" = 1 ]; then
+    render_samba_env
+    mkdir -p "$NFT_DIR"
+    if [ ! -f "$NFT_DIR/10-shares.nft" ]; then
+        cat > "$NFT_DIR/10-shares.nft" <<'EOF'
+# Written by lukenasos-identity.service: SMB is open because a share exists.
+add rule inet lukenasos input tcp dport 445 accept comment "smb: a share exists"
+EOF
+        # nftables.service has already loaded the base policy by now, so the
+        # rule this file adds needs a reload to exist. Reloading re-reads the
+        # whole conf, which is how this rule survives every later reload too.
+        systemctl reload-or-restart nftables.service >/dev/null 2>&1 || true
+        note "SMB reopened for the restored shares"
+    fi
+else
+    rm -f "$LUKE_CAPSULE/samba.env"
+fi
+
+[ "$changed" = 1 ] && event_log identity-applied "$(jq -cn '{}')"
+exit 0

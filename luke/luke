@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# luke — the LukeNasOS recovery CLI.
+#
+# luke is porcelain: bootc, ostree, and btrfs are all present and usable
+# directly. Every verb reconciles against their real state on each run rather
+# than trusting its own cache.
+
+set -o errexit -o nounset -o pipefail
+
+LIBEXEC="${LUKE_LIBEXEC:-/usr/libexec/lukenasos}"
+
+usage() {
+    cat <<'EOF'
+luke — recovery-first NAS control
+
+Usage: luke <verb> [options]
+
+Verbs:
+  status         What is running, what is staged, what happened last
+  setup          Name this NAS, create the administrator, make the first share
+  update         Check for and stage an OS update (applies on reboot)
+  undo           Boot the previous OS version on next reboot
+  factory-reset  Return the OS to its install state; /data is preserved
+  doctor         Run active health checks; print a verdict and fixes
+  unlock-console Reveal the stock Cockpit pages (event-logged; reset re-locks)
+
+Every verb accepts --json. Exit codes: 0 ok, 1 error, 2 usage,
+77 nothing to do.
+EOF
+}
+
+verb="${1:-}"
+[ -n "$verb" ] || { usage; exit 2; }
+shift
+
+case "$verb" in
+    status|setup|update|undo|factory-reset|doctor|unlock-console)
+        exec "$LIBEXEC/$verb" "$@"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "luke: unknown verb '$verb'" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

@@ -1,0 +1,31 @@
+[Unit]
+Description=LukeNasOS identity capsule (restore users, name and shares)
+Documentation=file:///usr/share/doc/lukenasos/SPEC.md
+# The capsule lives on @data, so nothing here can run before it is mounted.
+After=var-mnt-data.mount
+Requires=var-mnt-data.mount
+# nftables loads the base policy; the SMB rule for restored shares is added on
+# top of it, so this has to come second. Deliberately not Before=nftables: this
+# unit needs a filesystem mount, nftables runs before the network exists, and
+# ordering it in front of nftables risks a cycle to close a one-second window
+# on a port whose share is not being served yet anyway.
+After=nftables.service
+# Samba reads samba.env, which this unit regenerates from the capsule.
+Before=samba.service
+# The host-key restore must land before the keygen units look: their
+# ConditionPathExists=!<key> is evaluated at start, so ordered this way they
+# skip cleanly on a reset boot instead of racing the restore — rsa generation
+# is slow, and losing that race left sshd-keygen@rsa "failed" on every reset
+# (observed). On a first boot with an empty capsule this unit captures no
+# keys and the keygen units run as ever; the capture then happens on the
+# next boot, which is what best-effort-every-boot means.
+Before=sshd-keygen@rsa.service sshd-keygen@ecdsa.service sshd-keygen@ed25519.service
+ConditionPathExists=/var/mnt/data/.lukenasos
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/lukenasos/identity-apply
+
+[Install]
+WantedBy=multi-user.target

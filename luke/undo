@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# luke undo — boot the previous OS version on the next reboot.
+#
+# bootc rollback is a boot-order swap, which means running undo twice
+# re-activates the exact version you just escaped. Guard: if the would-be
+# target is on the digest block list, refuse without --force (LUKE-E031).
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+
+force=0
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        --force) force=1 ;;
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke undo accepts --json and --force" "luke undo" ;;
+    esac
+done
+
+require_root undo
+
+target=$(rollback_digest)
+staged=$(staged_digest)
+
+if [ -z "$target" ]; then
+    die "$EXIT_ERROR" LUKE-E030 \
+        "no previous version to undo to" \
+        "this machine has only one deployment" \
+        "luke status"
+fi
+
+# Staged-deployment interplay: undo with an update staged would be ambiguous
+# (which one wins on reboot depends on ostree ordering, not user intent).
+# Make the user resolve it explicitly.
+if [ -n "$staged" ]; then
+    die "$EXIT_ERROR" LUKE-E032 \
+        "an update is staged; undo would be ambiguous" \
+        "a staged update and a rollback both want the next boot" \
+        "reboot to apply the update first, or discard it: bootc rollback --help"
+fi
+
+if digest_blocked "$target" && [ "$force" != 1 ]; then
+    die "$EXIT_ERROR" LUKE-E031 \
+        "undo would re-activate a version that failed on this machine" \
+        "the previous deployment was automatically rolled back after failing health checks" \
+        "luke status --events   (or, if you are sure: luke undo --force)"
+fi
+
+target_ver=$(bootc status --json | jq -r '.status.rollback.image.version // "previous"')
+
+# No --quiet here: bootc rollback does not take it (verified on bootc 1.x —
+# passing it is an argument error that masqueraded as a rollback failure).
+bootc rollback >/dev/null \
+    || die "$EXIT_ERROR" LUKE-E033 \
+        "bootc rollback failed" \
+        "see: journalctl -b" \
+        "luke doctor"
+
+event_log undo "$(jq -cn --arg d "$target" --arg v "$target_ver" '{digest: $d, version: $v}')"
+
+if [ "$JSON" = 1 ]; then
+    jq -n --arg v "$target_ver" '{result: "undo-staged", boots_next: $v}'
+else
+    echo "${C_OK}${SYM_OK}${C_OFF} Next boot: $target_ver. Reboot when you like."
+fi
+exit "$EXIT_OK"

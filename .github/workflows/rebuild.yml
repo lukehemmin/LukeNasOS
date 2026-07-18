@@ -12,6 +12,7 @@ permissions:
   contents: read
   packages: write
   id-token: write
+  issues: write     # the EOL watch opens one when the base is going stale
 
 jobs:
   rebuild:
@@ -27,6 +28,47 @@ jobs:
           podman build --pull=always --build-arg VERSION="${version}.$(date +%Y%m%d)" -t "$IMAGE:stable-rebuild" .
       - name: Smoke-test that the image still lints
         run: podman run --rm ghcr.io/${{ github.repository_owner }}/lukenasos:stable-rebuild bootc container lint
+
+      - name: EOL watch — the base must not go stale under us
+        # This job rebuilds against a fresh base every Monday, which keeps
+        # security updates flowing but says nothing about the base RELEASE
+        # going end-of-life. It went EOL on 2026-05-13 and the product shipped
+        # on it for two months; the only reason anyone noticed was a photo of
+        # a boot screen. A rebuild that cannot see EOL is a rebuild that
+        # cheerfully repackages an unsupported OS forever.
+        #
+        # This does not fail the rebuild — a stale base still deserves its
+        # security updates. It opens an issue, once, while there is still time
+        # to do the release bump properly (it is never just a digest: F44
+        # brought greenboot 0.16, which moved the rollback mechanism).
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/lukenasos:stable-rebuild
+          end=$(podman run --rm --entrypoint sh "$IMAGE" -c \
+                  '. /etc/os-release; echo "${SUPPORT_END:-}"')
+          version=$(podman run --rm --entrypoint sh "$IMAGE" -c \
+                  '. /etc/os-release; echo "${VERSION_ID:-?}"')
+          if [ -z "$end" ]; then
+            echo "::warning::base image has no SUPPORT_END; cannot watch for EOL"
+            exit 0
+          fi
+          days=$(( ( $(date -d "$end" +%s) - $(date +%s) ) / 86400 ))
+          echo "base: Fedora $version, support ends $end ($days days)"
+          [ "$days" -gt 60 ] && { echo "plenty of runway"; exit 0; }
+
+          title="Fedora $version support ends $end ($days days) — plan the base bump"
+          if gh issue list --state open --search "$title" --json title \
+               | grep -qF "$title"; then
+            echo "already tracked"; exit 0
+          fi
+          gh issue create --title "$title" --body \
+          "The base this image is built on (Fedora $version) reaches end of support on **$end** — $days days from now.
+
+          A release bump is never just a digest. The last one (42 → 44) brought greenboot 0.16, which consolidated nine systemd units into three and moved the \`boot_counter\` grub snippet out of \`/etc/grub.d/\` — i.e. it moved the mechanism the headline feature is built on. Budget for a real migration with the lifecycle E2E as the gate, not an afternoon.
+
+          Raised automatically by the weekly rebuild so this is a decision, not a discovery." \
+          || echo "::warning::could not open the EOL issue"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Push
         run: podman push ghcr.io/${{ github.repository_owner }}/lukenasos:stable-rebuild
       # Promotion of stable-rebuild → stable stays a human decision until
