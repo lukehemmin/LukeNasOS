@@ -12,6 +12,14 @@ Requires=var-mnt-data.mount
 After=nftables.service
 # Samba reads samba.env, which this unit regenerates from the capsule.
 Before=samba.service
+# The host-key restore must land before the keygen units look: their
+# ConditionPathExists=!<key> is evaluated at start, so ordered this way they
+# skip cleanly on a reset boot instead of racing the restore — rsa generation
+# is slow, and losing that race left sshd-keygen@rsa "failed" on every reset
+# (observed). On a first boot with an empty capsule this unit captures no
+# keys and the keygen units run as ever; the capture then happens on the
+# next boot, which is what best-effort-every-boot means.
+Before=sshd-keygen@rsa.service sshd-keygen@ecdsa.service sshd-keygen@ed25519.service
 ConditionPathExists=/var/mnt/data/.lukenasos
 
 [Service]

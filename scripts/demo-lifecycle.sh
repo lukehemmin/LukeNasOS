@@ -828,8 +828,12 @@ phase_5_factory_reset() {
     # the expected shape after a REINSTALL over surviving /data (the case
     # identity-apply's re-retirement exists for). Both mean the same thing:
     # the token-era door cannot reopen. Unlocked means it can, and fails.
+    # `|| true` is load-bearing: on the expected (absent) outcome passwd
+    # exits nonzero, and without it pipefail+errexit kill this script in
+    # silence — the exact bug shape this harness keeps hunting, written into
+    # the line that was hunting it (cost: one full run).
     local luke_after
-    luke_after=$(vm_root passwd -S luke 2>&1 | awk '/^luke/ {print $2}')
+    luke_after=$(vm_root passwd -S luke 2>&1 | awk '/^luke/ {print $2}' || true)
     case "$luke_after" in
         ""|L) echo "   ok: the installer account cannot come back (state: ${luke_after:-absent})" ;;
         *) echo "ASSERT FAIL: the installer account survived the reset as '$luke_after'" >&2
