@@ -108,7 +108,8 @@ body {
 code { font-size: 0.85em; word-break: break-all; }
 
 label { display: block; margin: 1rem 0 0.25rem; font-weight: 600; }
-input[type="text"] {
+input[type="text"],
+input[type="password"] {
     width: 100%;
     min-height: 44px;
     padding: 0.4rem 0.6rem;
@@ -118,9 +119,31 @@ input[type="text"] {
     border: 1px solid var(--line);
     border-radius: 4px;
 }
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="password"]:focus {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
+}
+
+.pwrow { display: flex; gap: 0.5rem; }
+.pwrow input { flex: 1; }
+.pwrow button {
+    min-height: 44px;
+    padding: 0 1rem;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+kbd {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 0 0.3em;
+    font-size: 0.85em;
 }
 
 .field-error { color: var(--danger); font-size: 0.9rem; margin: 0.25rem 0 0; }

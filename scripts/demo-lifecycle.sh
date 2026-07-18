@@ -552,7 +552,28 @@ phase_1c_setup() {
             -o PubkeyAuthentication=no -o PreferredAuthentications=password \
             "$SETUP_USER@localhost" -- whoami)"
 
-    # And root stays outside, key or not: the image ships PermitRootLogin no
+    # PAM checking the transferred credential for real, rather than two strings
+    # being compared in /etc/shadow. This is the assertion the unit tests cannot
+    # make: their chpasswd is a stub, and a stub always agrees with me.
+    assert_eq "the transferred password authenticates" "root" "$(vm_sudo_pw whoami)"
+
+    # The harness needs its usual passwordless root back, the way the test
+    # kickstart grants it to luke. Test-only, and only after the line above has
+    # proven the password works without it.
+    grant_test_sudo
+
+    # Copied, not re-derived: the same hash the owner's password already had.
+    # Weaker than the sudo above — that one proves the credential WORKS — but it
+    # is what says the verb transferred the password rather than inventing a way
+    # to set a new one.
+    assert_eq "the chosen password moved across, byte for byte" "$before_hash" \
+        "$(vm_root sh -c "'getent shadow $SETUP_USER | cut -d: -f2'")"
+
+    # Everything from here to the share needs root, so it sits BELOW
+    # grant_test_sudo — the first version of this block ran before it, and
+    # every vm_root died at a password prompt with no tty (cost: one CI run).
+
+    # Root stays outside ssh, key or not: the image ships PermitRootLogin no
     # because the inherited default (prohibit-password) would still have
     # admitted root with a key.
     assert_eq "sshd refuses root outright" "permitrootlogin no" \
@@ -602,23 +623,6 @@ phase_1c_setup() {
     assert_eq "second unlock is nothing-to-do" "77" "$unlock_rc"
     assert_eq "the unlock is on the record" "1" \
         "$(vm_root sh -c "'grep -c console_unlocked /var/lib/lukenasos/events.jsonl'")"
-
-    # PAM checking the transferred credential for real, rather than two strings
-    # being compared in /etc/shadow. This is the assertion the unit tests cannot
-    # make: their chpasswd is a stub, and a stub always agrees with me.
-    assert_eq "the transferred password authenticates" "root" "$(vm_sudo_pw whoami)"
-
-    # The harness needs its usual passwordless root back, the way the test
-    # kickstart grants it to luke. Test-only, and only after the line above has
-    # proven the password works without it.
-    grant_test_sudo
-
-    # Copied, not re-derived: the same hash the owner's password already had.
-    # Weaker than the sudo above — that one proves the credential WORKS — but it
-    # is what says the verb transferred the password rather than inventing a way
-    # to set a new one.
-    assert_eq "the chosen password moved across, byte for byte" "$before_hash" \
-        "$(vm_root sh -c "'getent shadow $SETUP_USER | cut -d: -f2'")"
 
     # ── the share ──
     # Shut before a share exists — the promise SPEC §9 makes and the reason

@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <!--
-  LukeNasOS first-boot wizard — step 1: "Name your NAS and your account".
+  LukeNasOS first-boot wizard — Account → Network → First share → Done.
 
   This page is a view over `luke setup` and nothing more: every mutating
   action is a `luke` verb spawned with superuser (SPEC §6 — one audited
-  privileged surface, three front ends). There are no password fields on
+  privileged surface, three front ends). Step 1 has no password fields on
   purpose: the password chosen at the PAM forced change follows the user to
-  their new account (design decision 4.1A), so nobody types a third password
-  on a phone.
+  their new account (design decision 4.1A). Step 3 has exactly one, and the
+  page says why: SMB stores NT hashes, and nothing can derive one from the
+  Unix password.
 -->
 <html lang="en">
 <head>
@@ -22,10 +23,8 @@
 <main class="wizard">
     <header class="wordmark">
         <h1>LukeNasOS</h1>
-        <p class="pills" id="pills">
-            <span class="pill current">1 · Account</span><span class="pill">2 · Network</span><span class="pill">3 · First share</span><span class="pill">4 · Done</span>
-        </p>
-        <p class="pills-compact">Step 1 of 4 — Account</p>
+        <p class="pills" id="pills"></p>
+        <p class="pills-compact" id="pills-compact"></p>
     </header>
 
     <!-- Shown until `luke setup status` has answered. -->
@@ -43,13 +42,13 @@
         <p class="muted" id="noadmin-detail"></p>
     </section>
 
-    <!-- Step 1 proper. -->
-    <section id="view-form" class="card" hidden>
+    <!-- Step 1: name the NAS and its owner. -->
+    <section id="view-step1" class="card" hidden>
         <h2>Name your NAS and your account</h2>
         <p class="muted">The password you just chose stays with you — it follows
            you to your new account, so there is nothing more to type.</p>
 
-        <form id="step1" novalidate>
+        <form id="form-step1" novalidate>
             <label for="nas-name">What should this NAS be called on your network?</label>
             <input id="nas-name" name="nas-name" type="text" value="luke-nas"
                    autocapitalize="off" autocomplete="off" spellcheck="false"
@@ -63,18 +62,93 @@
                    pattern="[a-z_][a-z0-9_-]{0,31}">
             <p class="field-error" id="err-account" hidden></p>
 
-            <p class="field-error" id="err-global" hidden></p>
+            <p class="field-error" id="err-step1" hidden></p>
 
-            <button type="submit" id="submit">
-                <span id="submit-label">Create my account</span>
-                <span id="submit-spinner" class="spinner" hidden></span>
+            <button type="submit" id="submit-step1">
+                <span class="btn-label">Create my account</span>
+                <span class="spinner" hidden></span>
             </button>
         </form>
     </section>
 
-    <!-- Step 1 already happened (this run, an earlier run, or an interactive
-         install that made a wheel account) — never show a form that was
-         already submitted. -->
+    <!-- Step 2: the network, read-only. Mutating it is not designed yet
+         (SPEC §9 keeps NetworkManager); this step only proves to the user
+         that the machine is where they think it is. -->
+    <section id="view-step2" class="card" hidden>
+        <h2>Your NAS is on the network</h2>
+        <p class="muted" id="net-state">Reading the network configuration&hellip;</p>
+        <dl class="facts" id="net-facts" hidden></dl>
+        <form id="form-step2">
+            <button type="submit" id="submit-step2">
+                <span class="btn-label">Looks right — make my first share</span>
+                <span class="spinner" hidden></span>
+            </button>
+        </form>
+    </section>
+
+    <!-- Step 3: the first share. The one extra password of the whole flow,
+         with its reason on the screen. -->
+    <section id="view-step3" class="card" hidden>
+        <h2>Make your first share</h2>
+        <p class="muted">A share is a folder this NAS serves to your other
+           devices. Files in it belong to <strong id="share-owner">you</strong>.</p>
+
+        <form id="form-step3" novalidate>
+            <label for="share-name">What should the share be called?</label>
+            <input id="share-name" name="share-name" type="text" value="family"
+                   autocapitalize="off" autocomplete="off" spellcheck="false"
+                   pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,31}">
+            <p class="field-error" id="err-share" hidden></p>
+
+            <label for="share-password">Confirm your password to turn on file sharing</label>
+            <p class="muted">File sharing (SMB) keeps its own kind of password
+               record, and it cannot be derived from the one you sign in with —
+               so it has to see your password once. It stores only the derived
+               record, never the password itself.</p>
+            <div class="pwrow">
+                <input id="share-password" name="share-password" type="password"
+                       autocomplete="current-password">
+                <button type="button" id="pw-toggle" aria-label="Show password">Show</button>
+            </div>
+            <p class="field-error" id="err-password" hidden></p>
+
+            <p class="field-error" id="err-step3" hidden></p>
+            <p class="muted" id="share-progress" hidden>Creating your share&hellip;
+               The first share also downloads the file-sharing engine, which can
+               take a few minutes on a fresh machine. Leave this page open.</p>
+
+            <button type="submit" id="submit-step3">
+                <span class="btn-label">Create the share</span>
+                <span class="spinner" hidden></span>
+            </button>
+        </form>
+    </section>
+
+    <!-- Step 4: Done — the arc ends in Finder/Explorer, not in this browser. -->
+    <section id="view-step4" class="card" hidden>
+        <h2>Your NAS is ready</h2>
+        <p>Open your share from any device on this network:</p>
+        <dl class="facts">
+            <dt>Windows</dt><dd>press <kbd>Win</kbd>+<kbd>R</kbd> or use the Explorer
+                address bar: <code id="mount-win">\\…\…</code></dd>
+            <dt>Mac</dt><dd>in Finder press <kbd>⌘</kbd><kbd>K</kbd> and enter:
+                <code id="mount-mac">smb://…/…</code></dd>
+            <dt>Phone</dt><dd>any files app that speaks SMB, same address as Mac</dd>
+        </dl>
+        <p>When asked, sign in as <strong id="done4-user">—</strong> with the same
+           password you use here.</p>
+        <p class="muted">Your browser warned about this machine&rsquo;s certificate
+           because it has no public domain name — that is expected for a device
+           that lives in your home.</p>
+        <form id="form-step4">
+            <button type="submit" id="submit-step4">
+                <span class="btn-label">Finish</span>
+                <span class="spinner" hidden></span>
+            </button>
+        </form>
+    </section>
+
+    <!-- Setup is complete (this run or an earlier one): facts, not a form. -->
     <section id="view-done" class="card" hidden>
         <h2>This machine is set up</h2>
         <dl class="facts">
@@ -82,10 +156,8 @@
             <dt>Administrator</dt><dd id="done-user">—</dd>
             <dt>Shares</dt><dd id="done-shares">none yet</dd>
         </dl>
-        <p class="muted" id="done-next">The next wizard steps (network and your
-           first share) are on their way. Until they land, a share is one
-           command over ssh:
-           <code>printf '%s' 'your password' | sudo luke setup share --name family --user you --password-stdin</code></p>
+        <p class="muted">Open a share as on the Done screen: <code id="done-mount">smb://…</code>
+           — sign in with the same name and password you use here.</p>
     </section>
 </main>
 

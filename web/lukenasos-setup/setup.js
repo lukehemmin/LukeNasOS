@@ -1,10 +1,11 @@
-/* LukeNasOS first-boot wizard — step 1.
+/* LukeNasOS first-boot wizard — Account → Network → First share → Done.
  *
  * Privilege model (SPEC §6, eng decision 1A): this file contains zero calls
- * to useradd/smbpasswd/nft. Every mutation is a `luke setup` verb spawned
- * with superuser; the one exception the design names is
- * `loginctl terminate-user`, which ends the retired account's session after
- * the interstitial has explained why.
+ * to system administration tools. Every mutation is a `luke setup` verb
+ * spawned with superuser; the two non-luke spawns are the ones the design
+ * names — a read-only `ip addr` for the network view, and
+ * `loginctl terminate-user` after the interstitial has explained why the
+ * session is about to end.
  */
 "use strict";
 
@@ -12,22 +13,40 @@
 
 const $ = (id) => document.getElementById(id);
 
-const VIEWS = ["view-loading", "view-noadmin", "view-form", "view-done"];
+const VIEWS = ["view-loading", "view-noadmin", "view-step1", "view-step2",
+               "view-step3", "view-step4", "view-done"];
+const STEP_OF = { "view-step1": 1, "view-step2": 2, "view-step3": 3, "view-step4": 4 };
+const STEP_NAMES = ["Account", "Network", "First share", "Done"];
+
+/* What the wizard learned at routing time, reused by later steps. */
+const state = { user: null, share: null, address: null };
+
+function renderPills(current) {
+    $("pills").innerHTML = STEP_NAMES.map((n, i) => {
+        const cls = (i + 1 === current) ? "pill current" : "pill";
+        return '<span class="' + cls + '">' + (i + 1) + " · " + n + "</span>";
+    }).join("");
+    $("pills-compact").textContent =
+        current ? "Step " + current + " of 4 — " + STEP_NAMES[current - 1] : "";
+}
+
 function show(view) {
     VIEWS.forEach((v) => { $(v).hidden = (v !== view); });
+    renderPills(STEP_OF[view] || 0);
 }
 
 /* Run a luke verb with --json. Resolves with the parsed object.
  *
- * Exit 77 is "nothing to do" and carries a normal result object — a
- * re-submitted hostname answers {result:"current"} with 77, and treating
- * that as failure would make the wizard un-resumable. Other failures carry
- * luke's own error JSON on stdout ({error:{code,what,cause,next}}); rethrow
- * that so a field can show `what` instead of an exit status.
+ * Exit 77 is "nothing to do" and carries a normal result object — a resumed
+ * wizard re-submitting a hostname answers {result:"current"} with 77, and
+ * treating that as failure would make the wizard un-resumable. Other
+ * failures carry luke's own error JSON on stdout
+ * ({error:{code,what,cause,next}}); rethrow that so a field can show `what`
+ * instead of an exit status.
  */
-function luke(...args) {
-    return cockpit.spawn(["luke", ...args, "--json"],
-                         { superuser: "require", err: "out" })
+function luke(args, options) {
+    return cockpit.spawn(["luke"].concat(args, ["--json"]),
+                         Object.assign({ superuser: "require", err: "out" }, options || {}))
         .then((out) => JSON.parse(out))
         .catch((ex, out) => {
             if (ex.exit_status === 77 && out) return JSON.parse(out);
@@ -49,23 +68,61 @@ function fieldError(id, err) {
     }
 }
 
+function busy(button, on, label) {
+    button.disabled = on;
+    button.querySelector(".spinner").hidden = !on;
+    if (label)
+        button.querySelector(".btn-label").textContent = label;
+}
+
+function mountStrings(share) {
+    const host = state.address || window.location.hostname;
+    $("mount-win").textContent = "\\\\" + host + "\\" + share;
+    $("mount-mac").textContent = "smb://" + host + "/" + share;
+    $("done4-user").textContent = state.user || "—";
+}
+
+/* ── routing ─────────────────────────────────────────────────────────── */
+
 function route(status) {
-    if (status.account && status.account.done) {
-        $("done-hostname").textContent = (status.hostname && status.hostname.value) || "not chosen yet";
-        $("done-user").textContent = status.account.user || "—";
-        const shares = (status.share && status.share.shares) || [];
-        if (shares.length)
-            $("done-shares").textContent = shares.join(", ");
+    state.user = (status.account && status.account.user) || null;
+    const shares = (status.share && status.share.shares) || [];
+    state.share = shares[0] || null;
+
+    if (status.complete) {
+        $("done-hostname").textContent =
+            (status.hostname && status.hostname.value) || "not chosen yet";
+        $("done-user").textContent = state.user || "—";
+        $("done-shares").textContent = shares.join(", ");
+        $("done-mount").textContent =
+            "smb://" + (state.address || window.location.hostname) + "/" + state.share;
         show("view-done");
         return;
     }
-    if (status.hostname && status.hostname.value)
-        $("nas-name").value = status.hostname.value;
-    show("view-form");
+
+    if (!(status.account && status.account.done)) {
+        if (status.hostname && status.hostname.value)
+            $("nas-name").value = status.hostname.value;
+        show("view-step1");
+        return;
+    }
+
+    // Account exists (this wizard's step 1, or an interactive install that
+    // already made a wheel user — either way, never show a form that was
+    // already submitted). The bookmark decides between 2 and 3; a machine
+    // with an account but no bookmark still starts at 2.
+    $("share-owner").textContent = state.user;
+    const step = (status.wizard && status.wizard.step) || "2";
+    if (step === "3") {
+        show("view-step3");
+    } else {
+        show("view-step2");
+        loadNetwork();
+    }
 }
 
 function init() {
-    luke("setup", "status")
+    luke(["setup", "status"])
         .then(route)
         .catch((err) => {
             // "access-denied" is the no-superuser case; anything else still
@@ -75,6 +132,8 @@ function init() {
             show("view-noadmin");
         });
 }
+
+/* ── step 1: account ─────────────────────────────────────────────────── */
 
 /* The order is the design (finding 3.2): stamp progress FIRST, then render
  * the interstitial, and only then terminate the retired account's session —
@@ -97,35 +156,139 @@ function signOutInterstitial(name) {
     }, 1000);
 }
 
-function submit(ev) {
+function submitStep1(ev) {
     ev.preventDefault();
     const nas = $("nas-name").value.trim();
     const account = $("account-name").value.trim();
-    fieldError("err-nas", null);
-    fieldError("err-account", null);
-    fieldError("err-global", null);
+    ["err-nas", "err-account", "err-step1"].forEach((id) => fieldError(id, null));
 
-    $("submit").disabled = true;
-    $("submit-spinner").hidden = false;
-    $("submit-label").textContent = "Setting up…";
+    const button = $("submit-step1");
+    busy(button, true, "Setting up…");
     const fail = (id) => (err) => {
         fieldError(id, err);
-        $("submit").disabled = false;
-        $("submit-spinner").hidden = true;
-        $("submit-label").textContent = "Create my account";
+        busy(button, false, "Create my account");
         return Promise.reject(new Error("handled"));
     };
 
-    luke("setup", "hostname", "--name", nas)
+    luke(["setup", "hostname", "--name", nas])
         .catch(fail("err-nas"))
-        .then(() => luke("setup", "account", "--name", account).catch(fail("err-account")))
-        .then(() => luke("setup", "stamp", "--step", "2").catch(fail("err-global")))
+        .then(() => luke(["setup", "account", "--name", account]).catch(fail("err-account")))
+        .then(() => luke(["setup", "stamp", "--step", "2"]).catch(fail("err-step1")))
         .then(() => signOutInterstitial(account))
         .catch(() => { /* already shown on its field */ });
 }
 
+/* ── step 2: network, read-only ──────────────────────────────────────── */
+
+function loadNetwork() {
+    // Read-only, the same source the console banner reads. Mutating the
+    // network from the wizard is deliberately not designed yet (SPEC §9).
+    cockpit.spawn(["ip", "-j", "-4", "addr", "show", "scope", "global", "up"],
+                  { err: "message" })
+        .then((out) => {
+            const ifaces = JSON.parse(out).filter((i) => (i.addr_info || []).length);
+            if (!ifaces.length) {
+                $("net-state").textContent =
+                    "Not connected yet — check the cable. This page keeps working; " +
+                    "the share you make next becomes reachable once the network is.";
+                return;
+            }
+            state.address = ifaces[0].addr_info[0].local;
+            $("net-state").textContent =
+                "This is where your other devices will find it:";
+            const facts = $("net-facts");
+            facts.innerHTML = ifaces.map((i) =>
+                "<dt>" + i.ifname + "</dt><dd>" +
+                i.addr_info.map((a) => a.local).join(", ") + "</dd>").join("");
+            facts.hidden = false;
+        })
+        .catch((ex) => {
+            // Never a dead end: name the fallback the user can trust.
+            $("net-state").textContent =
+                "Could not read the network configuration (" +
+                (ex.message || ex.problem || "unknown") +
+                ") — `luke status` on the console shows it.";
+        });
+}
+
+function submitStep2(ev) {
+    ev.preventDefault();
+    const button = $("submit-step2");
+    busy(button, true);
+    luke(["setup", "stamp", "--step", "3"])
+        .then(() => { busy(button, false); show("view-step3"); })
+        .catch(() => { busy(button, false); show("view-step3"); });
+    // A failed stamp must not strand the user on step 2: the bookmark is a
+    // convenience, and status-derived routing recovers either way.
+}
+
+/* ── step 3: the first share ─────────────────────────────────────────── */
+
+function submitStep3(ev) {
+    ev.preventDefault();
+    const share = $("share-name").value.trim();
+    const password = $("share-password").value;
+    ["err-share", "err-password", "err-step3"].forEach((id) => fieldError(id, null));
+    if (!password) {
+        fieldError("err-password", { what: "Confirm your password to turn on file sharing" });
+        return;
+    }
+
+    const button = $("submit-step3");
+    busy(button, true, "Creating the share…");
+    $("share-progress").hidden = false;
+
+    const proc = cockpit.spawn(
+        ["luke", "setup", "share", "--name", share, "--user", state.user,
+         "--password-stdin", "--json"],
+        { superuser: "require", err: "out" });
+    proc.input(password);
+    proc.then((out) => JSON.parse(out))
+        .catch((ex, out) => {
+            if (ex.exit_status === 77 && out) return JSON.parse(out);
+            let parsed = null;
+            try { parsed = JSON.parse(out).error; } catch (e) { /* not luke's JSON */ }
+            return Promise.reject(parsed || ex);
+        })
+        .then((result) => luke(["setup", "stamp", "--step", "done"])
+            .catch(() => null)
+            .then(() => result))
+        .then((result) => {
+            state.share = result.share || share;
+            $("share-progress").hidden = true;
+            busy(button, false, "Create the share");
+            mountStrings(state.share);
+            show("view-step4");
+        })
+        .catch((err) => {
+            // The verb's contract: nothing half-made — no share recorded, 445
+            // still shut. So a plain retry is honest.
+            $("share-progress").hidden = true;
+            busy(button, false, "Create the share");
+            fieldError("err-step3", err);
+        });
+}
+
+function submitStep4(ev) {
+    ev.preventDefault();
+    init();  // re-routes to the completed view from real status
+}
+
+/* ── wiring ──────────────────────────────────────────────────────────── */
+
 document.addEventListener("DOMContentLoaded", () => {
-    $("step1").addEventListener("submit", submit);
+    $("form-step1").addEventListener("submit", submitStep1);
+    $("form-step2").addEventListener("submit", submitStep2);
+    $("form-step3").addEventListener("submit", submitStep3);
+    $("form-step4").addEventListener("submit", submitStep4);
+    $("pw-toggle").addEventListener("click", () => {
+        const pw = $("share-password");
+        const showing = pw.type === "text";
+        pw.type = showing ? "password" : "text";
+        $("pw-toggle").textContent = showing ? "Show" : "Hide";
+        $("pw-toggle").setAttribute("aria-label",
+                                    showing ? "Show password" : "Hide password");
+    });
     $("retry").addEventListener("click", (ev) => {
         ev.preventDefault();
         show("view-loading");
