@@ -649,6 +649,17 @@ phase_1c_setup() {
     assert_eq "the unlock is on the record" "1" \
         "$(vm_root sh -c "'grep -c console_unlocked /var/lib/lukenasos/events.jsonl'")"
 
+    # mDNS findability. QEMU user-net does not carry multicast off the guest,
+    # so the honest assertions are the ones this machine can make about
+    # itself: the responder is up, and the port it answers on is open in the
+    # LOADED ruleset (not the file — the file was already shellchecked).
+    # Actual <hostname>.local resolution from a second device is an M2
+    # hardware-bench check.
+    assert_eq "avahi is up to answer hostname.local" "active" \
+        "$(vm_root systemctl is-active avahi-daemon.service)"
+    assert_eq "5353/udp is open in the loaded ruleset" "1" \
+        "$(vm_root sh -c "'nft list ruleset | grep -c \"udp dport 5353\"'")"
+
     # ── the share ──
     # Shut before a share exists — the promise SPEC §9 makes and the reason
     # `luke setup share` has to open it.

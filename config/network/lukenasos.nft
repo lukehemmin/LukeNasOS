@@ -15,6 +15,11 @@
 #             Enabled by default and by design; see SPEC §9.
 #   9090 the setup wizard / dashboard (Cockpit). The whole product story after
 #        install happens here.
+#   5353/udp mDNS — a headless NAS must be findable without hunting the
+#        router's client list for an IP: avahi answers <hostname>.local.
+#        Opened deliberately, not by habit (the install-UX review's condition
+#        for this service was that it never precede the firewall — it now
+#        follows it by a day's work and this comment).
 #
 # NOT open, deliberately:
 #   445/139 SMB. `luke setup share` opens 445 when the first share is created
@@ -40,6 +45,7 @@ table inet lukenasos {
 
         tcp dport 22 accept comment "ssh: recovery path, SPEC section 9"
         tcp dport 9090 accept comment "setup wizard and dashboard"
+        udp dport 5353 accept comment "mDNS: hostname.local discovery, SPEC section 9"
 
         # Everything else is dropped by policy. Rejecting would be friendlier
         # on a LAN, but this box is also the thing you expose to a router by

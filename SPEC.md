@@ -377,6 +377,7 @@ one at a time with the reason:
 |------|-----|
 | 22 | ssh — the recovery path above |
 | 9090 | the setup wizard / dashboard |
+| 5353/udp | mDNS — avahi answers `<hostname>.local`, so a headless box is findable without hunting the router's client list. Added 2026-07-18, after the firewall it was required to follow |
 
 SMB (445/139) is **not** open by installing the OS. `luke setup share` opens it when the
 first share is created and closes it with the last: a file-sharing port that exists

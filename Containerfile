@@ -36,9 +36,14 @@ LABEL org.opencontainers.image.description="Recovery-first personal NAS: atomic 
 # the wizard plugin mounts into. Named individually rather than via the
 # `cockpit` metapackage, which would drag in the storage and networking pages
 # this image deliberately ships hidden.
+# avahi answers <hostname>.local so a headless NAS is findable without
+# hunting the router's client list — deliberately AFTER the firewall existed
+# (the install-UX review's condition for any new network service), with
+# 5353/udp opened by name in the policy.
 RUN dnf install -y \
         greenboot greenboot-default-health-checks \
         cockpit-ws cockpit-bridge cockpit-system \
+        avahi \
         jq skopeo btrfs-progs \
     && dnf clean all \
     && rm -rf /var/cache/* /var/lib/dnf /var/log/* /run/dnf
@@ -172,6 +177,7 @@ RUN systemctl enable \
         lukenasos-banner.service \
         lukenasos-identity.service \
         cockpit.socket \
+        avahi-daemon.service \
         lukenasos-scrub.timer \
         lukenasos-space-watchdog.timer \
         lukenasos-balance.timer \
