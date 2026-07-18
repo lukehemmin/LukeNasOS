@@ -31,8 +31,14 @@ LABEL org.opencontainers.image.description="Recovery-first personal NAS: atomic 
 
 # greenboot drives the headline feature (hands-off rollback). jq/skopeo are
 # luke's plumbing. samba-client stays out: Samba runs as a container.
+# Cockpit is the product's web surface (SPEC §6): ws serves and terminates
+# TLS, bridge runs the privileged side of a session, system brings the shell
+# the wizard plugin mounts into. Named individually rather than via the
+# `cockpit` metapackage, which would drag in the storage and networking pages
+# this image deliberately ships hidden.
 RUN dnf install -y \
         greenboot greenboot-default-health-checks \
+        cockpit-ws cockpit-bridge cockpit-system \
         jq skopeo btrfs-progs \
     && dnf clean all \
     && rm -rf /var/cache/* /var/lib/dnf /var/log/* /run/dnf
@@ -69,6 +75,32 @@ COPY config/network/lukenasos.nft /usr/share/lukenasos/lukenasos.nft
 # an error in nft, so a fresh install needs no file there.
 RUN printf '# LukeNasOS: the policy lives in the image (see SPEC §9).\n# Local additions can go below the include.\ninclude "/usr/share/lukenasos/lukenasos.nft"\ninclude "/etc/lukenasos/nftables.d/*.nft"\n' \
         > /etc/sysconfig/nftables.conf
+
+# ── Cockpit: the wizard's room, with the machine room locked ─────────────
+# 9090 was opened by the firewall and probed by the banner before Cockpit
+# existed in the image — both written to become true the day this section
+# landed. Product mode hides the stock pages (SPEC §6, decision 5.3A): one
+# click in the storage pages can repartition the contract disk, one in the
+# systemd page can disable greenboot — the exact guarantees this OS exists to
+# keep, voidable from a browser. The hiding is menu overrides in /etc/cockpit;
+# `luke unlock-console` removes them deliberately, with an event logged, and
+# reads the same list written here so the verb and this file can never
+# disagree about what "locked" means. A factory reset ships the overrides
+# back with the fresh /etc: locked is the factory state.
+#
+# The list is generous on purpose: an override for a page that is not
+# installed is ignored, and a page someone later layers in arrives hidden
+# rather than open. TLS needs nothing here — cockpit-ws mints a self-signed
+# certificate on first use, and the banner already tells the owner the
+# browser warning is expected on a device with no domain name.
+RUN printf '%s\n' systemd users metrics networkmanager storaged \
+        packagekit kdump selinux sosreport apps playground \
+        > /usr/share/lukenasos/cockpit-hidden-pages \
+    && mkdir -p /etc/cockpit \
+    && while read -r p; do \
+           printf '{"menu": null, "tools": null, "dashboard": null}\n' \
+               > "/etc/cockpit/$p.override.json"; \
+       done < /usr/share/lukenasos/cockpit-hidden-pages
 
 # ── the ssh door policy ───────────────────────────────────────────────────
 # Deliberate, not inherited. SPEC §9 claimed passwords over ssh were refused
@@ -111,6 +143,9 @@ COPY config/containers/samba.container /usr/share/containers/systemd/samba.conta
 # redundant. A headless appliance whose recovery path depends on ssh should
 # say so in one place rather than inherit it (SPEC §9). It is only defensible
 # with a firewall in front of it, which is why nftables is on this list.
+#
+# cockpit.socket is the web surface's front door (SPEC §6): socket-activated,
+# so cockpit-ws runs only while a browser is actually connected.
 RUN systemctl enable \
         greenboot-healthcheck.service \
         greenboot-set-rollback-trigger.service \
@@ -118,6 +153,7 @@ RUN systemctl enable \
         lukenasos-boot-check.service \
         lukenasos-banner.service \
         lukenasos-identity.service \
+        cockpit.socket \
         lukenasos-scrub.timer \
         lukenasos-space-watchdog.timer \
         lukenasos-balance.timer \

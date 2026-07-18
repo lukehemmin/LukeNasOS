@@ -32,7 +32,11 @@ wait_active() {
 
 rc=0
 
-for unit in sshd.service lukenasos-banner.service; do
+# cockpit.socket is in this list because the banner's whole promise — "open
+# this address to set up your NAS" — is a dead link without it, and a first
+# boot whose one instruction leads nowhere is a bad boot. Socket-activated,
+# so "active" means listening, which is exactly the claim the banner makes.
+for unit in sshd.service lukenasos-banner.service cockpit.socket; do
     if ! wait_active "$unit" "$CORE_GRACE_SECONDS"; then
         echo "FAIL: $unit did not come up within ${CORE_GRACE_SECONDS}s" >&2
         systemctl status --no-pager "$unit" >&2 || true

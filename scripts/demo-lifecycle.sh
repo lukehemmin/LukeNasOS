@@ -63,6 +63,9 @@ SETUP_HOSTNAME="${SETUP_HOSTNAME:-luke-nas}"
 # machine to mean anything: a client on the box itself matches `iif lo accept`
 # and never touches the rule that opening 445 is about.
 SMB_PORT="${SMB_PORT:-4450}"
+# Cockpit, forwarded off the guest for the same reason as SMB above: the
+# firewall's 9090 rule only means something to a client that is not on the box.
+COCKPIT_PORT="${COCKPIT_PORT:-9990}"
 
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
@@ -172,7 +175,7 @@ qemu_common_args() {
     fi
     args="$args -drive file=$DISK,format=qcow2,if=virtio"
     [ -n "$EXTRA_DISK" ] && args="$args -drive file=$EXTRA_DISK,format=qcow2,if=virtio"
-    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$SMB_PORT-:445 -device virtio-net-pci,netdev=n0"
+    args="$args -netdev user,id=n0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$SMB_PORT-:445,hostfwd=tcp::$COCKPIT_PORT-:9090 -device virtio-net-pci,netdev=n0"
     args="$args -display none -serial $QEMU_SERIAL"
     echo "$args"
     if [ -e /dev/kvm ]; then echo "-enable-kvm"; fi
@@ -457,6 +460,31 @@ smb_debug() {
     echo "──────────────────────────────────────────────────" >&2
 }
 
+# The wizard's front door, from OUTSIDE the machine — an in-VM curl would
+# pass with 9090 filtered. Socket-activated: the first request starts
+# cockpit-ws, which also mints its self-signed certificate on that request,
+# and on a TCG host neither is quick. So this waits rather than probes, and
+# asks the machine why on a timeout instead of spending another run to learn
+# nothing.
+wait_cockpit() {
+    local _
+    for _ in $(seq 1 "${COCKPIT_WAIT_TRIES:-24}"); do
+        curl -ksf -o /dev/null --max-time 15 "https://localhost:$COCKPIT_PORT/" \
+            && return 0
+        sleep 5
+    done
+    echo "── cockpit did not answer on https://localhost:$COCKPIT_PORT/; asking why ──" >&2
+    echo "· the socket:" >&2
+    vm_root systemctl status --no-pager cockpit.socket >&2 2>&1 || true
+    echo "· the service it activates:" >&2
+    vm_root systemctl status --no-pager cockpit.service >&2 2>&1 || true
+    echo "· is anything listening on 9090?" >&2
+    vm_root ss -ltnp 2>&1 | grep ":9090" >&2 || echo "  (nothing on 9090)" >&2
+    echo "· is 9090 open in the ruleset?" >&2
+    vm_root nft list ruleset 2>&1 | grep "dport 9090" >&2 || echo "  (no 9090 rule)" >&2
+    return 1
+}
+
 phase_1c_setup() {
     say "phase 1c: luke setup — the wizard's API, on a real machine"
 
@@ -529,6 +557,31 @@ phase_1c_setup() {
     # admitted root with a key.
     assert_eq "sshd refuses root outright" "permitrootlogin no" \
         "$(vm_root sh -c "'sshd -T 2>/dev/null | grep -i ^permitrootlogin'")"
+
+    # ── the wizard's front door ──
+    # The firewall opened 9090 and the banner probed cockpit.socket before
+    # Cockpit existed in the image; this is the assertion that they stopped
+    # describing a machine that does not exist.
+    wait_cockpit
+    echo "   ok: the wizard's door answers on https://:9090, from off the machine"
+
+    # Product mode (SPEC §6): every stock page ships hidden. Counted against
+    # the shipped list, so the two can only disagree by an actual bug.
+    assert_eq "every stock page ships hidden" \
+        "$(vm_root sh -c "'wc -l < /usr/share/lukenasos/cockpit-hidden-pages'")" \
+        "$(vm_root sh -c "'ls /etc/cockpit/*.override.json | wc -l'")"
+
+    # The escape hatch, on the record: unlock reveals, the event says so, and
+    # a second unlock is nothing-to-do. Phase 5 then asserts the factory reset
+    # takes the unlock back — locked is the factory state.
+    assert_json "unlock-console result" .result unlocked -- luke unlock-console --json
+    assert_eq "the overrides are gone" "0" \
+        "$(vm_root sh -c "'ls /etc/cockpit/*.override.json 2>/dev/null | wc -l'")"
+    local unlock_rc=0
+    vm_root luke unlock-console --json >/dev/null 2>&1 || unlock_rc=$?
+    assert_eq "second unlock is nothing-to-do" "77" "$unlock_rc"
+    assert_eq "the unlock is on the record" "1" \
+        "$(vm_root sh -c "'grep -c console_unlocked /var/lib/lukenasos/events.jsonl'")"
 
     # PAM checking the transferred credential for real, rather than two strings
     # being compared in /etc/shadow. This is the assertion the unit tests cannot
@@ -714,6 +767,15 @@ phase_5_factory_reset() {
             -o PubkeyAuthentication=no -o PreferredAuthentications=password \
             "$SETUP_USER@localhost" -- whoami)"
 
+    # Phase 1c unlocked the console; the fresh /etc must take that back.
+    # Unlocking is a live decision, not a surviving one (SPEC §6) — and this
+    # assertion is what makes that sentence a behavior instead of a hope.
+    assert_eq "the reset re-locked the console" \
+        "$(vm_root sh -c "'wc -l < /usr/share/lukenasos/cockpit-hidden-pages'")" \
+        "$(vm_root sh -c "'ls /etc/cockpit/*.override.json | wc -l'")"
+    wait_cockpit
+    echo "   ok: the wizard's door still answers after the reset"
+
     assert_eq "booted after reset" "v1" "$(vm_root luke status --json | jq -r .booted)"
 
     # The uid is the one thing that cannot be re-derived. Every file on /data is
@@ -797,6 +859,7 @@ verify_static() {
             "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
             "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
             "$REPO_ROOT"/luke/setup "$REPO_ROOT"/luke/identity-apply \
+            "$REPO_ROOT"/luke/unlock-console \
             "$REPO_ROOT"/luke/lib.sh \
             "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
             "$REPO_ROOT"/config/greenboot/red.d/*.sh \

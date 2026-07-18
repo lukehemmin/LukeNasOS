@@ -476,5 +476,54 @@ if [ "$RC" = 0 ] && ! called useradd && ! called hostnamectl; then
 else bad "a normal boot: converged already, so it does nothing"; fi
 
 echo
+echo "== unlock-console: the machine room's door, on the record =="
+
+# A locked machine, the way the image ships one: the page list plus one
+# override per page — and one override the OWNER wrote, which is not ours to
+# delete.
+lock_console() {
+    mkdir -p "$WORK/m/cockpit"
+    printf 'systemd\nusers\nstoraged\n' > "$WORK/m/hidden-pages"
+    for p in systemd users storaged; do
+        printf '{"menu": null}\n' > "$WORK/m/cockpit/$p.override.json"
+    done
+    printf '{"menu": {"custom": {}}}\n' > "$WORK/m/cockpit/owners-own.override.json"
+}
+
+run_unlock() {
+    set +o errexit
+    OUT=$(PATH="$WORK/m/bin:$PATH" \
+        LUKE_STATE_DIR="$WORK/m/state" \
+        LUKE_COCKPIT_CONF_DIR="$WORK/m/cockpit" \
+        LUKE_HIDDEN_PAGES="$WORK/m/hidden-pages" \
+        bash "$REPO_ROOT/luke/unlock-console" "$@" 2>&1)
+    RC=$?
+    set -o errexit
+}
+
+lock_console
+run_unlock --json
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | jq -e '.result == "unlocked" and (.pages | length) == 3' >/dev/null 2>&1 \
+   && [ ! -f "$WORK/m/cockpit/systemd.override.json" ]; then
+    ok "unlock removes every shipped override and names the pages it revealed"
+else bad "unlock removes every shipped override and names the pages it revealed"; fi
+
+if [ -f "$WORK/m/cockpit/owners-own.override.json" ]; then
+    ok "an override the owner wrote themselves is not ours to delete"
+else bad "an override the owner wrote themselves is not ours to delete"; fi
+
+# The verb's whole reason to exist over `rm`: the machine's history says who
+# opened the machine room, and when.
+if jq -e 'select(.type == "console_unlocked") | .detail.pages == ["systemd","users","storaged"]' \
+        "$WORK/m/state/events.jsonl" >/dev/null 2>&1; then
+    ok "the unlock is an event, with the revealed pages in it"
+else bad "the unlock is an event, with the revealed pages in it"; fi
+
+run_unlock --json
+if [ "$RC" = 77 ] && printf '%s' "$OUT" | jq -e '.result == "already-unlocked"' >/dev/null 2>&1; then
+    ok "a second unlock is nothing-to-do (77), not a fresh success"
+else bad "a second unlock is nothing-to-do (77), not a fresh success"; fi
+
+echo
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

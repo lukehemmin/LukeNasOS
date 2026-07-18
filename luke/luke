@@ -22,6 +22,7 @@ Verbs:
   undo           Boot the previous OS version on next reboot
   factory-reset  Return the OS to its install state; /data is preserved
   doctor         Run active health checks; print a verdict and fixes
+  unlock-console Reveal the stock Cockpit pages (event-logged; reset re-locks)
 
 Every verb accepts --json. Exit codes: 0 ok, 1 error, 2 usage,
 77 nothing to do.
@@ -33,7 +34,7 @@ verb="${1:-}"
 shift
 
 case "$verb" in
-    status|setup|update|undo|factory-reset|doctor)
+    status|setup|update|undo|factory-reset|doctor|unlock-console)
         exec "$LIBEXEC/$verb" "$@"
         ;;
     -h|--help|help)
