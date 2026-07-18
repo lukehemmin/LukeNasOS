@@ -56,11 +56,18 @@ sync_host_keys() {
         done
         if [ "$restored" = 1 ]; then
             note "ssh host identity restored — clients will not be warned"
-            # sshd read the regenerated keys minutes ago; it has to be told.
-            # Ordering this unit before sshd instead would put a filesystem mount
-            # in front of the machine's recovery path, which is a worse trade
-            # than one restart.
-            systemctl restart sshd.service >/dev/null 2>&1 || true
+            # try-restart, NOT restart. This unit is ordered before the
+            # sshd-keygen units, and a synchronous restart from inside it
+            # deadlocks the boot: sshd's start waits for the keygen units,
+            # the keygen units wait for this unit to finish, and this unit
+            # sits in `systemctl restart sshd` — a runtime wait cycle the
+            # ordering-cycle detector never sees. Observed as a reset boot
+            # parked at "fedora login:" forever (cost: one full run; the
+            # systemctl stub in the unit tests, as ever, saw nothing wrong).
+            # try-restart is a no-op while sshd has not started yet — it
+            # starts later, with these keys — and still bounces a running
+            # sshd when this script runs by hand on a live machine.
+            systemctl try-restart sshd.service >/dev/null 2>&1 || true
         fi
     else
         cp -a "$SSH_DIR"/ssh_host_*_key "$SSH_DIR"/ssh_host_*_key.pub "$LUKE_CAPSULE/" 2>/dev/null || true

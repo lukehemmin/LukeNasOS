@@ -455,9 +455,13 @@ else bad "recreates the administrator a reset erased"; fi
 # The scariest message in ssh, produced by the recovery feature, on a product
 # that sells recovery. SPEC §5.2 lists the host keys as surviving; factory-reset
 # has always copied them to /data and nothing ever copied them back.
+# try-restart, not restart: at boot this unit is ordered before sshd and a
+# synchronous restart from inside it deadlocks the whole transaction. The
+# stub cannot see a deadlock (it cost a full CI run to learn that); what it
+# CAN pin down is that the code asks for the non-deadlocking verb.
 if [ "$(cat "$WORK/m/ssh/ssh_host_ed25519_key")" = "ORIGINAL-HOST-KEY" ] \
    && [ "$(cat "$WORK/m/ssh/ssh_host_ed25519_key.pub")" = "ORIGINAL-HOST-KEY-PUB" ] \
-   && called "systemctl restart sshd"; then
+   && called "systemctl try-restart sshd"; then
     ok "restores the ssh host identity: no REMOTE HOST IDENTIFICATION HAS CHANGED"
 else bad "restores the ssh host identity: no REMOTE HOST IDENTIFICATION HAS CHANGED"; fi
 
