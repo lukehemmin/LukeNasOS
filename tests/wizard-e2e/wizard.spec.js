@@ -33,6 +33,15 @@ function wizard(page) {
 }
 
 async function login(page, user, password) {
+    // Cockpit sessions start limited, and whether to escalate at login is a
+    // per-user browser preference the shell keeps in localStorage. A fresh
+    // Playwright profile has no preferences, so seed the one a returning
+    // admin's browser would have: with it, the shell escalates with the
+    // password being typed right here — the same flow a real owner gets on
+    // every visit after their first "Turn on administrative access".
+    await page.evaluate((u) => {
+        window.localStorage.setItem("superuser:" + u, "sudo");
+    }, user);
     await page.fill("#login-user-input", user);
     await page.fill("#login-password-input", password);
     await page.click("#login-button");

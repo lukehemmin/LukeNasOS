@@ -206,6 +206,12 @@ function route(status) {
  * fails quietly into the retry below. */
 function requestSuperuser() {
     return new Promise((resolve) => {
+        // The timeout is the contract: where sudo would need a password, the
+        // Start call parks on a prompt nobody here can answer (the shell's
+        // dialog is the right place for that), and a promise that never
+        // settles would freeze the whole retry loop on the loading screen —
+        // observed. Resolving is always safe; the caller only retries.
+        window.setTimeout(() => resolve(false), 5000);
         try {
             const proxy = cockpit.dbus(null, { bus: "internal" })
                 .proxy("cockpit.Superuser", "/superuser");
