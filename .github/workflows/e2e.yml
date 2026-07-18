@@ -1,14 +1,16 @@
-# PR gate. x86_64 gates everything: if this is red, nothing merges.
+# The gate. x86_64 gates everything: if this is red, nothing merges.
 #
-# A copy of this file lives on main so that manual dispatch is registered
-# (GitHub only lists workflow_dispatch workflows found on the default
-# branch); push runs are driven by THIS copy on the development branch.
-name: 260709_test_e2e
+# Runs on every push to main and on every pull request — the development
+# flow is feature branch → PR → main, and both ends of that flow land here.
+# (Until 2026-07-18 this file lived as 260709_test_e2e.yml on a long-running
+# development branch, with a stub copy on main just to register dispatch;
+# the mainlining ended that pattern.)
+name: e2e
 
 on:
   pull_request:
   push:
-    branches: [260709_test]
+    branches: [main]
   workflow_dispatch:
     inputs:
       resume_run_id:
