@@ -55,6 +55,13 @@ html[class*="theme-light"] {
 }
 
 * { box-sizing: border-box; }
+
+/* The hidden attribute must always win. The browser's own [hidden] rule is
+   only `display: none` at UA priority, and any author display (the strip's
+   flex, the interstitial's flex) silently defeats it — which put the
+   sign-out overlay over the whole page from the first paint (caught by the
+   browser E2E's aria snapshot on its first real run). */
+[hidden] { display: none !important; }
 body {
     margin: 0;
     background: var(--bg);

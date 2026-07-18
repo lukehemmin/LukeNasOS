@@ -197,12 +197,48 @@ function route(status) {
     }
 }
 
+/* Ask the bridge to become root, explicitly. The shell normally escalates
+ * an admin's session at login, but it does so asynchronously — this page's
+ * first spawn can race it and lose (observed: a fresh login landing on the
+ * "administrative access" screen that a reload fixed). Where sudo needs no
+ * interaction the Start call succeeds silently; where it would need a
+ * password, the shell's own flow is the right place and this call just
+ * fails quietly into the retry below. */
+function requestSuperuser() {
+    return new Promise((resolve) => {
+        try {
+            const proxy = cockpit.dbus(null, { bus: "internal" })
+                .proxy("cockpit.Superuser", "/superuser");
+            proxy.wait(() => {
+                if (proxy.Current && proxy.Current !== "none") {
+                    resolve(true);
+                    return;
+                }
+                proxy.call("Start", ["sudo"])
+                    .then(() => resolve(true), () => resolve(false));
+            });
+        } catch (e) {
+            resolve(false);
+        }
+    });
+}
+
+let initTries = 0;
+
 function init() {
     luke(["setup", "status"])
         .then(route)
         .catch((err) => {
-            // "access-denied" is the no-superuser case; anything else still
-            // deserves its own words rather than a spinner forever.
+            const denied = err.problem === "access-denied"
+                || /not permitted/i.test(err.message || "")
+                || /access denied/i.test(err.message || "");
+            if (denied && initTries < 8) {
+                initTries += 1;
+                requestSuperuser().then(() => window.setTimeout(init, 3000));
+                return;
+            }
+            // Still denied after asking, or something else entirely: name it,
+            // never a spinner forever.
             $("noadmin-detail").textContent =
                 err.what || err.message || (err.problem ? "(" + err.problem + ")" : "");
             show("view-noadmin");
