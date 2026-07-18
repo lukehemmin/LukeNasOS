@@ -86,6 +86,14 @@ event_log factory-reset-started "$(jq -cn --arg size "$data_size" '{data: $size}
 # after reset — the deleted override files' deletion was faithfully merged
 # into the "fresh" /etc. Machine state under /var/lib is cleared selectively
 # below.
+#
+# --karg-proc-cmdline is not optional beside it: --no-merge also refuses the
+# booted deployment's KERNEL ARGUMENTS, and with no other source the new
+# deployment's BLS entry gets none — no root=, an initramfs with nowhere to
+# go, a factory reset that bricks the boot (read from the ostree source, not
+# discovered on a machine). The live /proc/cmdline is the right source: the
+# disk layout did not change, BOOT_IMAGE=/initrd= are filtered by ostree, and
+# the deploy path replaces ostree= with the new deployment's own.
 # Parse by shape, not position: the checksum is the only 64-hex token (with
 # a .N deploy serial) on a deployment line, and "Pinned: yes" refers to the
 # deployment line most recently seen above it. A positional parse here once
@@ -110,7 +118,7 @@ origin_args=()
 pinned_origin=$(ls "/ostree/deploy/$stateroot/deploy/$pinned_checksum".*.origin 2>/dev/null | head -1)
 [ -n "$pinned_origin" ] && origin_args=(--origin-file "$pinned_origin")
 
-ostree admin deploy --no-merge --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
+ostree admin deploy --no-merge --karg-proc-cmdline --stateroot="$stateroot" --retain "${origin_args[@]}" "$pinned_checksum" \
     || die "$EXIT_ERROR" LUKE-E043 \
         "deploying the pinned install image failed" \
         "see: journalctl -b" \
