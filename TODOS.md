@@ -80,19 +80,23 @@ Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-2
 steps 1–4 and the health strip shipped (see the note above) — and what remains is the
 browser-side proof and the polish around it:
 
-- [ ] **Playwright E2E for the wizard** — `cockpit.spawn` runs over websockets, so curl
-  cannot exercise a Cockpit plugin. Runs at a phone viewport and a desktop one, light and
-  dark. Covers the browser half only: the machine half is already proven by lifecycle
-  phase 1c/5 (verbs, credential transfer, capsule restore, and a no-browser serving check
-  that logs into Cockpit's own login endpoint and fetches the plugin with the session
-  cookie). What has never been executed is the JS itself: the form flow, the interstitial
-  before terminate-user, the resume-from-stamp routing, the strip states. Until this
-  exists, the wizard's browser half has the same status the setup verbs had before
-  phase 1c — logic reviewed, never run. (M → S, P1)
+- [x] **Playwright E2E for the wizard — shipped 2026-07-18** (wizard-browser CI job,
+  green in run 29643582156): a real Chromium drives the owner's literal path on a fresh
+  VM — token login off the machine, step 1, the interstitial before terminate-user, the
+  re-login page whose hint stopped saying "token", escalation as a returning admin,
+  steps 2–4 with the real share creation, and the landing page. Its four debug cycles
+  each caught a real bug, two of them user-facing product bugs the no-browser serving
+  check could never see: the sign-out overlay covering the page from first paint
+  (author display defeating [hidden]) and the superuser flow freezing on the loading
+  screen. Screenshots at every step ride as artifacts. Remaining polish, deliberately
+  deferred: phone viewport + dark-mode projects (the flow mutates the machine, so extra
+  projects need read-only scope), and driving the shell's own escalation dialog for the
+  true first-visit path. (M → S, P1)
 
-- [ ] **Post-wizard landing page** — the wizard's completed-state card (facts + mount
-  string) is the placeholder today; the real landing is the health strip + share list +
-  `luke status` facts, the seed of the timeline UI. (M → S, P2)
+- [x] **Post-wizard landing page — shipped 2026-07-18**: the completed view renders
+  what the design specified for the minimal landing — health strip, machine facts
+  (name, administrator, booted version), and every share with the smb:// address that
+  opens it. The M3 dashboard grows from here (see Timeline / undo web UI below). (M → S, P2)
 
 - [ ] **Interactive ISO variant** — `--interactive` drops `user`/`network`/`timezone`/
   `keyboard` from the kickstart so anaconda asks, and must also strip the `chage -d 0`
@@ -101,12 +105,12 @@ browser-side proof and the polish around it:
 
 ## Deferred past M1
 
-- [ ] **mDNS `luke.local` discovery** — so a headless NAS is findable without hunting for
-  its IP. Rescheduled by the install-UX design (eng review 2026-07-16): a new network
-  service must not precede the firewall, and now it does not — **the nftables dependency is
-  met** (shipped 2026-07-17), so this is unblocked and needs its own port opened
-  deliberately (5353/udp) rather than by habit. Phase 1 findability is the console banner
-  printing the wizard URL. (S → S, P2)
+- [x] **mDNS `luke.local` discovery — shipped 2026-07-18** (lifecycle green in run
+  29643237656): avahi answers `<hostname>.local`, 5353/udp opened by name in the policy
+  with its reason (SPEC §9 table), deliberately after the firewall it was required to
+  follow. The lifecycle asserts what a user-net guest can honestly assert — responder
+  active, port open in the LOADED ruleset; real .local resolution from a second device
+  is an M2 hardware-bench check, said so rather than faked. (S → S, P2)
 
 - [x] **Disk portability test — shipped 2026-07-18** as lifecycle phase 7 (green, run
   29642071363): the same disk that lived through install/setup/update/rollback/reset/
