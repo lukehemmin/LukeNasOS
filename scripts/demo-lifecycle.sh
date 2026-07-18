@@ -870,8 +870,18 @@ phase_5_factory_reset() {
 
 phase_6_power_loss() {
     say "phase 6: power cuts during and after staging"
+    # The reset one phase ago genuinely cleared /etc — including the
+    # harness's own pointers at the CI registry, which the test kickstart had
+    # written there (IMAGE_REF and the insecure-registry entry). Re-rig the
+    # lab bench the way the kickstart did, or every update below walks off to
+    # ghcr.io and dies of LUKE-E020 (cost: one full run). The ^IMAGE_REF sed
+    # also covers the pre-reset resume paths, where the file still says
+    # v2-broken from phase 4.
+    vm_root sed -i "'s|^IMAGE_REF=.*|IMAGE_REF=10.0.2.2:5000/lukenasos:v2|'" /etc/lukenasos/luke.conf
+    printf '[[registry]]\nlocation = "10.0.2.2:5000"\ninsecure = true\n' \
+        | vm_root sh -c "'grep -q 10.0.2.2 /etc/containers/registries.conf 2>/dev/null || cat >> /etc/containers/registries.conf'"
+
     # 6a: cut DURING staging — machine must boot the old version cleanly.
-    vm_root sed -i "'s|lukenasos:v2-broken|lukenasos:v2|'" /etc/lukenasos/luke.conf
     vm_root systemd-run --unit=luke-bg-update luke update --json || true
     sleep 3
     kill_vm   # yank the cord mid-pull

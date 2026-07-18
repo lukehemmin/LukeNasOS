@@ -4,9 +4,11 @@ Started as deferred scope from the /autoplan review (2026-07-12, branch `260709_
 it now also carries debts found while building. Format: What / Why / Context /
 Effort (human → CC) / Priority / Depends on.
 
-Checked against the tree, not from memory, on 2026-07-17. That check is the point: this
-list had been describing `luke unlock-console` and a Cockpit plugin surface as though they
-existed, on a machine with no Cockpit in it at all.
+Checked against the tree, not from memory, on 2026-07-17; re-reconciled 2026-07-18 after
+the Cockpit/wizard wave shipped. That check is the point: this list had been describing
+`luke unlock-console` and a Cockpit plugin surface as though they existed, on a machine
+with no Cockpit in it at all — both are real now, and the entries moved to the shipped
+notes the day they were proven, not the day they were written.
 
 > **Shipped 2026-07-17** (PR #3, #4), removed from this list: the install-UX repair
 > wave (one-disk erase, biosboot, setup token, quiet boot, ISO branding, SPEC sweep,
@@ -28,6 +30,35 @@ existed, on a machine with no Cockpit in it at all.
 > keys, and share all come back from the capsule. Getting there surfaced three real bugs
 > the stubs had agreed with: every share answered ACCESS_DENIED (0770 root:root parent),
 > `create-hash.sh` output parsing, and ssh host keys were captured but never restored.
+>
+> **Shipped 2026-07-18**, removed from this list:
+> - **The §9 ssh contradiction, settled**: the banner was right and §9 was wrong — first
+>   login IS password auth. The image now declares it deliberately
+>   (`sshd_config.d/40-lukenasos.conf`: `PasswordAuthentication yes`,
+>   `PermitRootLogin no` — stricter than the inherited default, which admitted root with
+>   a key). Proven by sshpass with pubkey forbidden, in phase 1c and again after the
+>   reset.
+> - **Cockpit installed** (ws/bridge/system, socket enabled, greenboot-required), every
+>   stock page shipped hidden (decision 5.3A), `luke unlock-console` as the event-logged
+>   escape hatch, and the login page told what to type via the Banner hook — with the
+>   text rewritten by `setup account` and identity-apply the moment "sign in as luke"
+>   stops being true.
+> - **The wizard, steps 1–4** (`web/lukenasos-setup`): account (no password fields,
+>   interstitial before terminate-user), read-only network, first share (the one extra
+>   password, with its reason on screen), and the last-mile Done screen. Plus the health
+>   strip — which deliberately has NO "recovery seed" segment, because no seed mechanism
+>   exists yet and a UI state for it would be the spec's favorite bug as an API. New
+>   `luke setup stamp` records where the user was; a reset clears it.
+> - **Factory reset never actually cleared /etc** — the third
+>   normative-but-unimplemented find: SPEC §5 said "no 3-way merge" and the deploy did
+>   one anyway, so accounts, lock states, and even deletions rode across every reset
+>   (and flattered some phase-5 assertions). Fixed as a trilogy, each caught by the
+>   machine or the source: `--no-merge`; `--karg-proc-cmdline` beside it (alone it
+>   ships no root= — a reset that bricks the boot, read from the ostree source before
+>   any machine ran it, confirmed by the control run's 20-minute silence); and fstab
+>   carried across like the kargs (the image has none — anaconda wrote it — and without
+>   it /boot never mounts, bootc errors, and the banner dies of pipefail), via an
+>   ostree-style rw-remount of the read-only /sysroot.
 
 ## Now: debts, in the order they will bite
 
@@ -44,79 +75,26 @@ existed, on a machine with no Cockpit in it at all.
   rides along with the still-pending GHCR publish. Until then, every red `build` job with
   `manifest unknown` is this, not the commit under it. (M → S, P1)
 
-- [ ] **SPEC §9 vs the banner on ssh passwords — settled 2026-07-18, proof in CI** —
-  §9 said "password authentication over ssh stays refused"; the banner tells a new owner
-  to `ssh luke@<ip>` and type the setup token. The banner is the product: first login
-  *is* password auth. Decision (per the "decide deliberately, don't inherit" note this
-  entry carried): the image now ships `/etc/ssh/sshd_config.d/40-lukenasos.conf` with
-  `PasswordAuthentication yes` and `PermitRootLogin no` — the second line is *stricter*
-  than the inherited `prohibit-password`, which would still have admitted root with a
-  key. §9 rewritten to match. The lifecycle now asserts both against the running
-  machine: an sshpass connection with pubkey forbidden (phase 1c, and again after the
-  factory reset in phase 5), and `sshd -T` for the root refusal. Fold this entry into
-  the shipped note above once that lifecycle run is green. (S → S, P1)
-
 ## Next: the first-boot wizard
 
 Design: `~/.gstack/projects/lukehemmin-LukeNasOS/lukehemmin-260709_test-design-20260716-193011.md`
-(eng + design reviewed, decisions recorded there). The repair wave was Phase 1 of it;
-this is the rest, and it is the first work that puts a screen in front of a user.
-`luke setup` gave it a privileged API to call. It still has nowhere to run:
-
-- [ ] **Cockpit is not installed** — nothing in `Containerfile`, `config/`, or the
-  kickstart mentions it. Every item below is a Cockpit plugin, so this blocks all of them,
-  and it was missing from this list entirely while the list described the plugins in
-  detail. Meanwhile the firewall already opens 9090 "for the setup wizard and dashboard"
-  and `luke/banner` already tests for `cockpit.socket` before printing the URL — both
-  written to be true the day this lands, and both currently describing a port and a unit
-  that do not exist. Includes: the packages, `cockpit.socket` enabled, the TLS story for a
-  device with no domain (the banner already promises users the browser warning is
-  expected), and decision 5.3A — hiding the stock pages, since cockpit-storaged can
-  repartition the contract disk and the systemd page can disable greenboot, i.e. one click
-  can void the guarantee SPEC §6 exists to protect. (M → S, P1, blocks: everything below)
-
-- [ ] **`luke unlock-console`** — decision 5.3A's escape hatch: an explicit, event-logged
-  verb that reveals full Cockpit for advanced users. Does not exist; this list referred to
-  it as though it did. Only meaningful once the stock pages are actually hidden, so it
-  ships with the item above. (S → S, P2, depends: Cockpit)
-
-- [ ] **First-boot wizard, step 1** — "Name your NAS and your account". No password
-  fields: the PAM forced-change at login already set one, and `luke setup account` now
-  transfers it. Then render the sign-out interstitial and only then `loginctl
-  terminate-user` — a silent disconnect reads as a crash on the user's first action.
-  (The verb retires `luke` itself; the wizard must not, and must not assume locking ends
-  the session — it does not.) Resumes at step 2 from a stamp file: `luke setup status`
-  derives what is *done*, but not where the user was.
-  (L → M, P1, depends: luke setup verbs ✅)
-
-- [ ] **Wizard steps 2–4** — network view (read-only: SPEC §9 keeps NetworkManager but
-  the wizard mutating it is not designed yet), first share, and a Done screen that
-  coaches the last mile (`\<ip>\<share>`, `smb://<ip>/<share>`, which credentials).
-  The arc ends in Finder, not in the browser.
-  Step 3 gained a password field the design did not have — "confirm your password to turn
-  on file sharing" — because SMB stores NT hashes and nothing can derive one from the Unix
-  password (decided with the maintainer, 2026-07-17). It needs a show-password toggle: the
-  verb cannot check the password against the Unix one (no crypt(3) from shell on F44 —
-  Python dropped the module), so a typo there silently means a share that rejects the
-  password the Done screen tells them to use. Step 3 also pulls the Samba image on a fresh
-  machine, so its loading state is minutes, not a spinner. (L → M, P2)
-
-- [ ] **Health strip** — the product's thesis as a component: truthful first-boot states
-  (`recovery seed: capturing…`, not `factory reset ready`), live poll of
-  `luke status --json`, a state table per segment (pending/ok/failed/degraded), stacked
-  under 480px, designed in both themes. (M → S, P2)
-
-- [ ] **Post-wizard landing page** — Phase 1 hides the stock Cockpit pages, so without
-  this `:9090` after setup is an empty shell. Health strip + share list + `luke status`
-  facts. The seed of the timeline UI. (M → S, P2, depends: Cockpit)
+(eng + design reviewed, decisions recorded there). As of 2026-07-18 the wizard EXISTS —
+steps 1–4 and the health strip shipped (see the note above) — and what remains is the
+browser-side proof and the polish around it:
 
 - [ ] **Playwright E2E for the wizard** — `cockpit.spawn` runs over websockets, so curl
-  cannot exercise a Cockpit plugin. This scaffolding is why the wizard is ~1.5 weeks and
-  not a half-day. Runs at a phone viewport and a desktop one, light and dark. Covers the
-  browser half only: the machine half (does the account transfer work, does the share
-  mount, does it all survive a factory reset) belongs to the lifecycle phase in the first
-  debt above, which does not need a browser and should not wait for one.
-  (M → S, P1, with the wizard)
+  cannot exercise a Cockpit plugin. Runs at a phone viewport and a desktop one, light and
+  dark. Covers the browser half only: the machine half is already proven by lifecycle
+  phase 1c/5 (verbs, credential transfer, capsule restore, and a no-browser serving check
+  that logs into Cockpit's own login endpoint and fetches the plugin with the session
+  cookie). What has never been executed is the JS itself: the form flow, the interstitial
+  before terminate-user, the resume-from-stamp routing, the strip states. Until this
+  exists, the wizard's browser half has the same status the setup verbs had before
+  phase 1c — logic reviewed, never run. (M → S, P1)
+
+- [ ] **Post-wizard landing page** — the wizard's completed-state card (facts + mount
+  string) is the placeholder today; the real landing is the health strip + share list +
+  `luke status` facts, the seed of the timeline UI. (M → S, P2)
 
 - [ ] **Interactive ISO variant** — `--interactive` drops `user`/`network`/`timezone`/
   `keyboard` from the kickstart so anaconda asks, and must also strip the `chage -d 0`
