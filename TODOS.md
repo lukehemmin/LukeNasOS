@@ -98,6 +98,15 @@ browser-side proof and the polish around it:
   (name, administrator, booted version), and every share with the smb:// address that
   opens it. The M3 dashboard grows from here (see Timeline / undo web UI below). (M → S, P2)
 
+- [ ] **Publish a try-qcow2 with releases** — `scripts/try-lukenasos.sh` and the README's
+  15-minute pitch assume a downloadable N-1 qcow2 release asset; release.yml publishes
+  only the ISO, so the script correctly reports "no qcow2 asset" today. Shipping it has
+  a real design question inside: a downloadable image is the SAME image for everyone,
+  and SPEC §10 exists precisely to forbid a credential every install shares — so the
+  try image needs its own story (first-boot token generation on the try image's first
+  boot, or an explicitly-labeled insecure demo mode). Decide, then add the asset to
+  release.yml (an install run in CI produces the qcow2). (M → S, P3)
+
 - [ ] **Interactive ISO variant** — `--interactive` drops `user`/`network`/`timezone`/
   `keyboard` from the kickstart so anaconda asks, and must also strip the `chage -d 0`
   line (it hard-fails once `user` is gone) and the banner's token reminder. Second

@@ -19,30 +19,20 @@ Built as a [bootc](https://bootc-dev.github.io/bootc/) image derived from
 Fedora bootc / uCore. NAS features run as podman containers on top; the OS
 underneath stays immutable.
 
-## Try it (15 minutes, no install)
-
-```bash
-git clone https://github.com/lukehemmin/LukeNasOS && cd LukeNasOS
-./scripts/try-lukenasos.sh
-```
-
-That downloads the latest release image and boots it in QEMU. The published
-try-image is one version behind on purpose, so you can experience the whole
-point:
-
-```bash
-ssh -p 2222 luke@localhost   # password: lukenasos (you will be asked to change it)
-luke status                  # ● OK, version, what's next
-luke update                  # stages the newer release; nothing reboots
-sudo systemctl reboot        # new version boots
-luke undo                    # changed your mind? previous version on next boot
-```
-
 ## Install it
 
-Boot a Fedora netinst ISO with `installer/luke.ks` (any kickstart delivery
-works; a USB stick labelled `OEMDRV` containing it as `ks.cfg` is the
-simplest). The disk contract it applies:
+Download the installer ISO from the
+[latest release](https://github.com/lukehemmin/LukeNasOS/releases/latest)
+(or the [nightly build](https://github.com/lukehemmin/LukeNasOS/releases/tag/nightly)),
+write it to a USB stick, and boot. The install is unattended; when it is
+done, the console shows the address to open and a one-time setup token —
+that token is the only credential a fresh machine has, printed on its own
+screen and nowhere else. Sign in with it (browser or ssh), and the setup
+wizard walks you from naming the machine to opening your first share.
+
+Prefer kickstart? `installer/luke.ks` works with any Fedora netinst and any
+kickstart delivery (a USB stick labelled `OEMDRV` containing it as `ks.cfg`
+is the simplest). The disk contract either path applies:
 
 ```
 ESP 512M (FAT32) · /boot 1G (ext4 — grubenv lives here) · btrfs (root, @data, @seed)
@@ -87,9 +77,13 @@ network at all, is [docs/exit-plan.md](docs/exit-plan.md).
 
 ## Status
 
-Pre-M1. The lifecycle above is implemented and tested in QEMU; real
-hardware (M2) and the container app layer (M3) come after the M1 demo. See
-[TODOS.md](TODOS.md).
+M1. Everything above is not a roadmap — it is what CI proves on every
+change, on a real (virtual) machine: a ten-job pipeline installs the OS,
+runs first-boot setup through the browser wizard, stages and applies an
+update, breaks one on purpose and watches it roll itself back, factory-
+resets while a Samba share's file survives, cuts power twice, and moves
+the disk to hardware it has never seen. Real hardware (M2) and the
+container app layer (M3) are next. See [TODOS.md](TODOS.md).
 
 ## License
 
