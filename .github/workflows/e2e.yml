@@ -265,12 +265,16 @@ jobs:
             build/test-key.pub
 
   wizard-browser:
-    # The browser half of the wizard. The machine half (verbs, credential
-    # transfer, capsule) is proven in the lifecycle job; what runs nowhere
-    # else is the JS itself — the form flow, the interstitial before
-    # terminate-user, the resume routing. A separate job with its own fresh
-    # install, because the wizard mutates the machine exactly the way phase
-    # 1c does: the two can never share a disk.
+    # The browser half of the wizard AND the dashboard's armed undo. The
+    # machine half (verbs, credential transfer, capsule) is proven in the
+    # lifecycle job; what runs nowhere else is the JS itself — the form flow,
+    # the interstitial before terminate-user, the resume routing, and the
+    # hold-to-run undo. After the wizard, the harness stages+applies an update
+    # so v1 becomes a rollback target, then a real finger holds the undo
+    # control and the harness reboots to prove the machine actually went back a
+    # version. A separate job with its own fresh install, because the wizard
+    # mutates the machine exactly the way phase 1c does: the two can never
+    # share a disk.
     runs-on: ubuntu-latest
     needs: build
     steps:

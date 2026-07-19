@@ -998,6 +998,7 @@ verify_static() {
     if command -v node >/dev/null; then
         node --check "$REPO_ROOT"/web/lukenasos-setup/setup.js \
             "$REPO_ROOT"/tests/wizard-e2e/wizard.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/undo.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1088,12 +1089,49 @@ wizard_browser() {
     token=$(vm_root cat /var/lib/lukenasos/.test-token)
     [ -n "$token" ] || { echo "no parked setup token on the test machine" >&2; return 1; }
     wait_cockpit
+
+    # Part 1: the wizard, as the owner. Creates the account and ends on the
+    # landing page whose undo control is correctly DISABLED — one deployment,
+    # no rollback target yet.
     ( cd "$REPO_ROOT/tests/wizard-e2e" \
         && npm install --no-fund --no-audit >/dev/null \
         && LUKE_TOKEN="$token" COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
-           npx playwright test )
+           npx playwright test wizard.spec.js )
+
+    # ── arm the undo: give the machine a version to go back to ──
+    # The wizard just retired 'luke' and created the owner, so drive the box as
+    # them now. Their password is the token (the test kickstart un-expired
+    # luke, so it rode through as the transferred password), and the harness
+    # needs passwordless root the way phase 1c grants it — for the update and
+    # the reboots below, never for anything the browser does.
+    SSH_USER="$SETUP_USER"
+    SETUP_PASSWORD="$token"
+    wait_ssh
+    grant_test_sudo
+    say "arming undo: stage v2 and apply it so v1 becomes the rollback target"
+    assert_json "update stages" .result staged -- luke update --json
+    reboot_vm; wait_ssh
+    assert_eq "the update booted" "v2" "$(vm_root luke status --json | jq -r .booted)"
+    assert_eq "the rollback target is armed" "v1" "$(vm_root luke status --json | jq -r .rollback)"
+    wait_cockpit
+
+    # Part 2: the armed undo, driven by a real finger on the hold-to-run
+    # control. LUKE_UNDO_ARMED is the gate the spec waits for — a bare
+    # `playwright test` against a fresh box skips it rather than failing on a
+    # disabled button.
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_UNDO_ARMED=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test undo.spec.js )
+
+    # The whole point of the button, proven end to end: it did not just say
+    # "Returned" — the machine actually goes back a version on the next boot.
+    reboot_vm; wait_ssh
+    assert_eq "the browser's undo moved the machine back a version" "v1" \
+        "$(vm_root luke status --json | jq -r .booted)"
+
     kill_vm
-    say "WIZARD BROWSER E2E COMPLETE — the JS ran, on a real machine, as the owner"
+    say "WIZARD BROWSER E2E COMPLETE — the wizard AND a real hold-to-run undo, on a real machine"
 }
 
 clean() {
