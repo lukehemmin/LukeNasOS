@@ -74,16 +74,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: QEMU smoke test (x86_64 gates the release)
+      - name: Smoke — the published artifact is intact
+        # The boot proof is not here and does not need to be: the ten-job e2e
+        # gate ran on the exact commit this tag points at. What CAN go wrong
+        # between that gate and a user's machine is the artifact itself, so
+        # this pulls what was actually PUBLISHED and lints it. (The previous
+        # version of this step installed QEMU, started a registry, pushed to
+        # it — and then booted nothing: theater, which failed the release on
+        # a TLS flag while asserting zero things.)
         run: |
-          sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools jq podman xorriso
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm.rules
-          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-          # Boot-check only here: the full lifecycle already gated the merge.
-          scripts/demo-lifecycle.sh registry-up
           podman pull "$IMAGE:${{ github.ref_name }}-x86_64"
-          podman tag  "$IMAGE:${{ github.ref_name }}-x86_64" localhost:5000/lukenasos:v1
-          podman push localhost:5000/lukenasos:v1
+          podman run --rm "$IMAGE:${{ github.ref_name }}-x86_64" bootc container lint
+          sudo apt-get update && sudo apt-get install -y xorriso mtools
       - name: Move the stable tag
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
