@@ -107,7 +107,12 @@ function renderStrip(st) {
     else
         seg("seg-reset", "bad", "factory reset target missing — luke doctor");
 
-    if (st.rollback)
+    if (st.rollback && st.rollback_blocked)
+        // The rollback slot holds the version that just failed here — real,
+        // but not somewhere to go. Neutral, not a green "armed ✓" that the
+        // disabled undo below would then contradict.
+        seg("seg-rollback", "pending", "previous version set aside");
+    else if (st.rollback)
         seg("seg-rollback", "ok", "rollback armed ✓");
     else
         seg("seg-rollback", "pending", "rollback target: after first update");

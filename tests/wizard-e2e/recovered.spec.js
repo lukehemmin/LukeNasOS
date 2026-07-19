@@ -58,9 +58,12 @@ test("the recovered dashboard, on a machine that rolled itself back", async ({ p
         await expect(plain).toContainText("data volume was never touched");
     });
 
-    await test.step("the health strip shows the recovered segment", async () => {
+    await test.step("the health strip shows recovered, and does not claim rollback is armed", async () => {
         await expect(wizard(page).locator("#seg-verdict")).toContainText(
             "recovered", { timeout: 60000 });
+        // The rollback slot holds the broken build; the strip must not say
+        // "armed ✓" while the undo below refuses it — that would contradict.
+        await expect(wizard(page).locator("#seg-rollback")).toContainText("set aside");
     });
 
     await test.step("the journal records the automatic rollback", async () => {
