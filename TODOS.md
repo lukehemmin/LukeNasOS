@@ -133,18 +133,22 @@ browser-side proof and the polish around it:
 - [ ] **Timeline / undo web UI** — the heart of the product vision. The M1 event model is
   its foundation. Stack DECIDED (eng review 2026-07-16, install-UX design): Cockpit
   plugin, with `luke` verbs (`--json`) as the only privileged API. The first-boot wizard
-  from that design is the first slice; this item is the dashboard it grows into. Run
-  `/design-consultation` for the visual system before the dashboard slice. (L → M, P2,
-  depends: first-boot wizard, event model)
+  from that design is the first slice; this item is the dashboard it grows into. Its
+  design gate is paid: DESIGN.md exists (2026-07-19) and the wizard already wears the
+  system, so the dashboard builds on proven tokens. Includes the theme-loading mechanism
+  (`/etc/lukenasos/theme.css`, DESIGN.md § Theming) as a small rider. (L → M, P2,
+  depends: first-boot wizard ✓, event model, DESIGN.md ✓)
 
-- [ ] **Visual system (DESIGN.md) for the web surface** — run `/design-consultation` to
-  produce DESIGN.md (palette, typography, spacing, motion) before the dashboard slice.
-  Design review 2026-07-16 deliberately capped Phase 1 at stock PatternFly + wordmark +
-  the health strip as the only custom component, because there was no system to build
-  against and hand-rolled CSS fights Cockpit's theming (and breaks dark mode). The
-  dashboard is the product's face; it should not ship as "another Cockpit page". Do this
-  when there are real screens to design against, not before. (M → S, P2, depends:
-  first-boot wizard)
+- [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
+  `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
+  different grips — the bones (verdict-first sentences, status color owned by the health
+  surface, timeline over dashboard, hold-to-run undo, calm motion) settled and
+  theme-independent; the skin a user-themable `--ln-*` token contract with "Ranger
+  Station" (warm paper, spruce, Fraunces / Atkinson Hyperlegible Next / Commit Mono,
+  bundled woff2, no runtime CDN) as only the shipped default theme. The wizard wears it
+  already, and the wizard-browser CI screenshots answered the in-shell question the same
+  day. Status colors carry documented safety constraints — a theme that paints DEGRADED
+  reassuring is a safety bug, not a preference. (M → S, P2)
 
 - [ ] **Data-plane undo** — `@data` snapshot timeline, btrfs scrub timer, send/receive
   backups. This extends "undo" from the OS to the whole NAS, which is what users actually
