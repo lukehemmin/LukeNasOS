@@ -44,19 +44,15 @@ async function login(page, user, password) {
     await page.click("#login-button");
 }
 
-// Press and hold the undo control for `ms`, then release, without moving the
-// pointer (a move would fire pointerleave and cancel the hold). boundingBox
-// on a frameLocator returns main-frame coordinates, which is exactly what
-// page.mouse speaks.
+// Press and hold the undo control for `ms`, then release. click({delay}) is
+// Playwright's press-and-hold: it scrolls the control into view (the timeline
+// pushes it below the fold — a hand-rolled page.mouse at raw boundingBox
+// coordinates pressed a point outside the viewport and hit nothing, which is
+// exactly the bug the first CI run caught), presses at its centre, waits `ms`
+// between down and up without moving (so no pointerleave cancels the hold),
+// then releases.
 async function holdUndo(page, ms) {
-    const undo = wizard(page).locator("#undo");
-    const box = await undo.boundingBox();
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.waitForTimeout(ms);
-    await page.mouse.up();
+    await wizard(page).locator("#undo").click({ delay: ms });
 }
 
 test("the armed undo, held by a real finger", async ({ page }) => {
