@@ -135,6 +135,28 @@ test("the first-boot wizard, end to end, as the owner", async ({ page }) => {
         await expect(wizard(page).locator("#view-done")).toBeVisible({ timeout: 60000 });
         await expect(wizard(page).locator("#done-share-list")).toContainText(SHARE);
         await expect(wizard(page).locator("#strip")).toContainText("factory reset ready", { timeout: 60000 });
+    });
+
+    await test.step("the verdict speaks in a sentence and the timeline remembers", async () => {
+        // The landing is the dashboard's first slice (DESIGN.md bones #1,
+        // #4): verdict as a sentence, then the journal — and the journal's
+        // first entries are the wizard's own actions, performed minutes ago
+        // in this very test. The machine remembers what just happened to it.
+        await expect(wizard(page).locator("#verdict-word")).toContainText(
+            "Everything is fine.", { timeout: 60000 });
+        const timeline = wizard(page).locator("#timeline");
+        await expect(timeline).toContainText("Named the machine “luke-nas”");
+        await expect(timeline).toContainText("Created administrator " + ADMIN);
+        await expect(timeline).toContainText("Opened share “" + SHARE + "”");
+    });
+
+    await test.step("undo is present, honest, and disarmed on a fresh machine", async () => {
+        // Bone #5: the undo control is the largest control on the page — but
+        // a fresh install has no rollback target, and the button must say so
+        // instead of pretending (LUKE-E030 as UI state, not as a surprise).
+        await expect(wizard(page).locator("#undo")).toBeDisabled();
+        await expect(wizard(page).locator("#undo-hint")).toContainText(
+            "arms after your first update");
         await page.screenshot({ path: `${SCREENS}/08-landing.png`, fullPage: true });
     });
 });
