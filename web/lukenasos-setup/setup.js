@@ -255,6 +255,17 @@ function armUndo(st) {
             "arms after your first update.";
         return;
     }
+    if (st.rollback_blocked) {
+        // After a recovery the rollback slot holds the version that just
+        // failed here. Offering to return to it would undo the recovery, so
+        // the button stays down and says why (the undo verb refuses it too).
+        btn.disabled = true;
+        $("undo-label").textContent = "Return to the previous version";
+        hint.textContent = "The previous version failed its health checks on " +
+            "this machine and was set aside — there is nothing safe to return " +
+            "to right now.";
+        return;
+    }
     btn.disabled = false;
     $("undo-label").textContent = "Return to " + st.rollback;
     hint.textContent = "Hold to run — let go anytime and nothing happens.";
