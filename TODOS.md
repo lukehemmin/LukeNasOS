@@ -88,13 +88,15 @@ browser-side proof and the polish around it:
   each caught a real bug, two of them user-facing product bugs the no-browser serving
   check could never see: the sign-out overlay covering the page from first paint
   (author display defeating [hidden]) and the superuser flow freezing on the loading
-  screen. Screenshots at every step ride as artifacts. Remaining polish, deliberately
-  deferred: phone viewport + dark-mode projects (the flow mutates the machine, so extra
-  projects need read-only scope), and driving the shell's own escalation dialog for the
-  true first-visit path. (M → S, P1)
-  Update 2026-07-19: a second suite (`undo.spec.js`) now drives the armed hold-to-run
-  undo too (PR #8) — see the Timeline / undo item below. Phone/dark projects still
-  deferred.
+  screen. Screenshots at every step ride as artifacts. (M → S, P1)
+  Update 2026-07-19: three more suites landed. `undo.spec.js` drives the armed hold-to-run
+  undo (PR #8) and `recovered.spec.js` the RECOVERED dashboard (PR #10) — both under the
+  Timeline / undo item below. `landing-responsive.spec.js` (PR #12) closed the deferred
+  phone + dark-mode gap: read-only against the finished landing, it asserts no sideways
+  scroll and a stacked strip at 390px, and that dark mode really engages in the real
+  Cockpit shell (luminance, not a hopeful screenshot) — the shell's own chrome goes dark
+  too. Still deferred: driving the shell's own escalation dialog for the true first-visit
+  path.
 
 - [x] **Post-wizard landing page — shipped 2026-07-18**: the completed view renders
   what the design specified for the minimal landing — health strip, machine facts
