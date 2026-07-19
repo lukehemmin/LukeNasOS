@@ -107,7 +107,12 @@ function renderStrip(st) {
     else
         seg("seg-reset", "bad", "factory reset target missing — luke doctor");
 
-    if (st.rollback)
+    if (st.rollback && st.rollback_blocked)
+        // The rollback slot holds the version that just failed here — real,
+        // but not somewhere to go. Neutral, not a green "armed ✓" that the
+        // disabled undo below would then contradict.
+        seg("seg-rollback", "pending", "previous version set aside");
+    else if (st.rollback)
         seg("seg-rollback", "ok", "rollback armed ✓");
     else
         seg("seg-rollback", "pending", "rollback target: after first update");
@@ -253,6 +258,17 @@ function armUndo(st) {
         $("undo-label").textContent = "Return to the previous version";
         hint.textContent = "Nothing to return to yet — the rollback target " +
             "arms after your first update.";
+        return;
+    }
+    if (st.rollback_blocked) {
+        // After a recovery the rollback slot holds the version that just
+        // failed here. Offering to return to it would undo the recovery, so
+        // the button stays down and says why (the undo verb refuses it too).
+        btn.disabled = true;
+        $("undo-label").textContent = "Return to the previous version";
+        hint.textContent = "The previous version failed its health checks on " +
+            "this machine and was set aside — there is nothing safe to return " +
+            "to right now.";
         return;
     }
     btn.disabled = false;

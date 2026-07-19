@@ -999,6 +999,7 @@ verify_static() {
         node --check "$REPO_ROOT"/web/lukenasos-setup/setup.js \
             "$REPO_ROOT"/tests/wizard-e2e/wizard.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/undo.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/recovered.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1130,8 +1131,37 @@ wizard_browser() {
     assert_eq "the browser's undo moved the machine back a version" "v1" \
         "$(vm_root luke status --json | jq -r .booted)"
 
+    # ── the product's headline state: prove RECOVERED renders ──
+    # Point the box at the deliberately-broken image and let greenboot do what
+    # the whole product exists for — fail it and roll back hands-off. Same
+    # dance as lifecycle phase 4; then a browser confirms the dashboard says
+    # "Recovered itself. Nothing was lost.", a sentence no screenshot has ever
+    # shown on a real machine, and that undo does not offer the broken version.
+    say "recovered state: break an update, let greenboot roll it back, show the dashboard"
+    vm_root sed -i "'s|lukenasos:v2|lukenasos:v2-broken|'" /etc/lukenasos/luke.conf
+    vm_root luke update --json >/dev/null
+    reboot_vm
+    local rdeadline=$(( SECONDS + ${ROLLBACK_DANCE_TIMEOUT:-3600} ))
+    local rverdict=""
+    while [ "$SECONDS" -lt "$rdeadline" ]; do
+        ensure_vm
+        rverdict=$(vm_root luke status --json 2>/dev/null | jq -r .verdict 2>/dev/null || echo "")
+        [ "$rverdict" = "RECOVERED" ] && break
+        sleep 20
+    done
+    assert_eq "the verdict settled on RECOVERED" "RECOVERED" "$rverdict"
+    assert_eq "recovered onto the good version" "v1" \
+        "$(vm_root luke status --json | jq -r .booted)"
+    assert_json "the blocked broken build is the rollback target" \
+        .rollback_blocked true -- luke status --json
+    wait_cockpit
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_RECOVERED_SHOWN=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test recovered.spec.js )
+
     kill_vm
-    say "WIZARD BROWSER E2E COMPLETE — the wizard AND a real hold-to-run undo, on a real machine"
+    say "WIZARD BROWSER E2E COMPLETE — the wizard, a real hold-to-run undo, AND the recovered dashboard"
 }
 
 clean() {

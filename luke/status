@@ -65,6 +65,14 @@ if [ "$JSON" = 1 ]; then
     # bug — describing a machine that does not exist — as an API.
     pinned=false
     pinned_deployment_exists && pinned=true
+    # rollback_blocked: the rollback target is on the block list — it is the
+    # version a bad update was rolled back FROM, and undoing to it would
+    # re-activate exactly what the machine just escaped (the undo verb refuses
+    # it, LUKE-E031). The dashboard needs this to keep from offering "return to
+    # the broken version" as a live button after a recovery.
+    rollback_blocked=false
+    rb_dig=$(jq -r '.status.rollback.image.imageDigest // empty' <<<"$bootc_json")
+    [ -n "$rb_dig" ] && digest_blocked "$rb_dig" && rollback_blocked=true
     # --events adds the journal as an array (newest last, capped at 200) —
     # the timeline dashboard's data source. The luke verbs are the only
     # privileged API (SPEC §6), so the journal is served here, not by
@@ -83,11 +91,13 @@ if [ "$JSON" = 1 ]; then
         --arg rollback "${rollback_ver:-}" \
         --arg staged_lost "${staged_lost:-no}" \
         --argjson pinned "$pinned" \
+        --argjson rollback_blocked "$rollback_blocked" \
         --argjson events "$events_json" \
         --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
         '{verdict: $verdict, booted: $booted,
           staged: (if $staged == "" then null else $staged end),
           rollback: (if $rollback == "" then null else $rollback end),
+          rollback_blocked: $rollback_blocked,
           staged_lost: ($staged_lost == "yes"),
           pinned: $pinned,
           last_rollback: $cause[0]}
