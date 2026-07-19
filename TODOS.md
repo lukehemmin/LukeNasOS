@@ -146,10 +146,17 @@ browser-side proof and the polish around it:
     label. Caught a real test bug (the control sits below the fold; hand-rolled page.mouse
     missed it — fixed with Playwright's click({delay})) and a product bug (undo re-armed
     itself after success, inviting the double-undo the verb warns against).
-  Remaining for a fuller dashboard: browser undo also exercised against a broken-update
-  auto-rollback (RECOVERED verdict on screen), storage/capacity panel, per-event detail
-  views, live refresh without a reload. (L → M, P2, depends: first-boot wizard ✓, event
-  model ✓, DESIGN.md ✓)
+  - **The RECOVERED dashboard, browser-proven** (PR #10): the wizard-browser job now also
+    breaks an update on purpose and rides the greenboot rollback dance, so the browser
+    renders the product's headline state — "Recovered itself. Nothing was lost." — for the
+    first time on a real machine. Surfaced two correctness items the state exposed: after a
+    recovery the rollback slot holds the version that just FAILED, so `luke status --json`
+    gained `rollback_blocked` and both the undo button and the health strip now refuse to
+    offer it ("previous version set aside") instead of a green "armed ✓" the disabled undo
+    would contradict.
+  Remaining for a fuller dashboard: storage/capacity panel, per-event detail views, live
+  refresh without a reload, phone/dark Playwright projects. (L → M, P2, depends: first-boot
+  wizard ✓, event model ✓, DESIGN.md ✓)
 
 - [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
   `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
