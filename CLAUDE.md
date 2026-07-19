@@ -4,6 +4,13 @@ LukeNasOS is a recovery-first personal NAS: a bootc-derived immutable OS with at
 updates, hands-off automatic rollback, and a data-preserving factory reset. See
 ARCHITECTURE.md, SPEC.md, and BUILD.md.
 
+## Design system
+
+Always read DESIGN.md before making any visual or UI decision. Fonts, colors
+(the `--ln-*` token contract), spacing, motion, and the theme system are defined
+there. Do not deviate without explicit maintainer approval. In QA or review
+mode, flag any code that doesn't match DESIGN.md.
+
 ## Language policy (applies to every agent, including subagents)
 
 **Write English. Speak Korean.**
