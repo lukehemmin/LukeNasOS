@@ -279,7 +279,7 @@ function wireUndo() {
                         " boots next.";
                     hint.textContent = "Reboot when you like — the journal " +
                         "below already recorded it.";
-                    refreshLanding();
+                    refreshLanding(false);
                 })
                 .catch((err) => {
                     btn.disabled = false;
@@ -303,13 +303,18 @@ function wireUndo() {
 }
 
 /* One status --events call feeds the verdict, the timeline, the undo state,
- * and the version fact — the luke verbs stay the only privileged API. */
-function refreshLanding() {
+ * and the version fact — the luke verbs stay the only privileged API.
+ *
+ * rearm=false after a successful undo: re-arming would offer to undo again,
+ * and a second undo re-activates the exact version just escaped (the undo
+ * verb warns of this itself). The completed button keeps its "Returned"
+ * message; only the timeline refreshes to show the new event. */
+function refreshLanding(rearm) {
     return luke(["status", "--events"])
         .then((st) => {
             renderVerdict(st);
             renderTimeline(st.events);
-            armUndo(st);
+            if (rearm !== false) armUndo(st);
             $("done-version").textContent = st.booted || "—";
         })
         .catch(() => {
