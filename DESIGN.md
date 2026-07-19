@@ -180,9 +180,11 @@ Themes are a **token contract**, not a plugin system.
 
 ## Open validations (honest edges, checked at the dashboard slice)
 
-1. **Inside the real Cockpit shell:** the preview rendered standalone. Warm
-   paper inside Cockpit's cool grey chrome is unvalidated — screenshot the
-   themed wizard in the actual shell before building the dashboard on it.
+1. **Inside the real Cockpit shell:** ~~unvalidated~~ **answered 2026-07-19**
+   by the wizard-browser screenshots on PR #6 (run 29668838599): the shell's
+   white chrome and the warm paper content read as deliberate layering —
+   chrome vs. page — not a clash. The remaining seam is Cockpit's own blue
+   masthead links, which belong to the shell, not the plugin.
 2. **Warm-serif fashion risk:** warm background + serif display is a look AI
    tools currently converge on. Spruce (not terracotta) and the trailhead
    metaphor pull away from that cluster, but if the skin ages badly, the
@@ -195,3 +197,4 @@ Themes are a **token contract**, not a plugin system.
 |------|----------|-----------|
 | 2026-07-19 | Initial system created by /design-consultation | Three voices (research + Codex + Claude subagent) independently converged on warm-light surfaces, green accent, verdict-first, timeline-first; maintainer picked the Fraunces voice over Instrument Sans restraint |
 | 2026-07-19 | Theming = token contract; Ranger Station is the default theme | Maintainer's call: users can develop their own themes; the skin is the loosest-held layer, and a token contract makes swapping it free. Constraints on status colors documented above |
+| 2026-07-19 | In-shell validation passed | Wizard migrated to the tokens (PR #6); wizard-browser CI screenshots show the theme inside the real Cockpit shell, both a fresh machine and the landing page |
