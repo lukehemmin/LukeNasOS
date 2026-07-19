@@ -144,6 +144,7 @@ function fetchAddress() {
 /* Each journal entry, said as a person would say it. Unknown types fall
  * through verbatim — a new verb's events must never be invisible. */
 const EVENT_TEXT = {
+    "installed": () => "LukeNasOS was installed — the story starts here",
     "setup-hostname": (d) => "Named the machine “" + (d.hostname || "?") + "”",
     "setup-account": (d) => "Created administrator " + (d.user || "?"),
     "setup-share": (d) => "Opened share “" + (d.share || d.name || "?") + "”",
