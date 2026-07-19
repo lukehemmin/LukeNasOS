@@ -92,6 +92,9 @@ browser-side proof and the polish around it:
   deferred: phone viewport + dark-mode projects (the flow mutates the machine, so extra
   projects need read-only scope), and driving the shell's own escalation dialog for the
   true first-visit path. (M → S, P1)
+  Update 2026-07-19: a second suite (`undo.spec.js`) now drives the armed hold-to-run
+  undo too (PR #8) — see the Timeline / undo item below. Phone/dark projects still
+  deferred.
 
 - [x] **Post-wizard landing page — shipped 2026-07-18**: the completed view renders
   what the design specified for the minimal landing — health strip, machine facts
@@ -130,14 +133,23 @@ browser-side proof and the polish around it:
   test the initramfs's driver inventory, which is Fedora's promise, not ours. What
   remains for M2 is only the literal-hardware version of the same move. (M → S, P2)
 
-- [ ] **Timeline / undo web UI** — the heart of the product vision. The M1 event model is
-  its foundation. Stack DECIDED (eng review 2026-07-16, install-UX design): Cockpit
-  plugin, with `luke` verbs (`--json`) as the only privileged API. The first-boot wizard
-  from that design is the first slice; this item is the dashboard it grows into. Its
-  design gate is paid: DESIGN.md exists (2026-07-19) and the wizard already wears the
-  system, so the dashboard builds on proven tokens. Includes the theme-loading mechanism
-  (`/etc/lukenasos/theme.css`, DESIGN.md § Theming) as a small rider. (L → M, P2,
-  depends: first-boot wizard ✓, event model, DESIGN.md ✓)
+- [~] **Timeline / undo web UI** — the heart of the product vision. Stack DECIDED (eng
+  review 2026-07-16, install-UX design): Cockpit plugin, with `luke` verbs (`--json`) as
+  the only privileged API. **First slices shipped 2026-07-19**:
+  - **The landing IS the timeline** (PR #7): `luke status --events --json` serves the
+    journal (events array, cap 200); the verdict renders as a Fraunces sentence, entries
+    as plain-language sentences (unknown types verbatim), hold-to-run undo with honest
+    disabled states, and the `/etc/lukenasos/theme.css` loader rider.
+  - **The armed undo, browser-proven** (PR #8): the wizard-browser job now stages+applies
+    an update so v1 becomes a rollback target, a real finger holds the undo control, and
+    the harness reboots to prove the box booted v1 — the button moves the OS, not just its
+    label. Caught a real test bug (the control sits below the fold; hand-rolled page.mouse
+    missed it — fixed with Playwright's click({delay})) and a product bug (undo re-armed
+    itself after success, inviting the double-undo the verb warns against).
+  Remaining for a fuller dashboard: browser undo also exercised against a broken-update
+  auto-rollback (RECOVERED verdict on screen), storage/capacity panel, per-event detail
+  views, live refresh without a reload. (L → M, P2, depends: first-boot wizard ✓, event
+  model ✓, DESIGN.md ✓)
 
 - [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
   `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
