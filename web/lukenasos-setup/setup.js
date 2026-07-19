@@ -139,9 +139,189 @@ function fetchAddress() {
         .catch(() => { /* the fallback covers it */ });
 }
 
+/* ── the landing: verdict, timeline, undo (DESIGN.md bones #1, #4, #5) ── */
+
+/* Each journal entry, said as a person would say it. Unknown types fall
+ * through verbatim — a new verb's events must never be invisible. */
+const EVENT_TEXT = {
+    "setup-hostname": (d) => "Named the machine “" + (d.hostname || "?") + "”",
+    "setup-account": (d) => "Created administrator " + (d.user || "?"),
+    "setup-share": (d) => "Opened share “" + (d.share || d.name || "?") + "”",
+    "update-staged": (d) => "Staged update " + (d.version || "") +
+        " — applies on the reboot you choose",
+    "update-applied": (d) => "Updated to " + (d.version || "a new version"),
+    "reboot-to-apply": () => "Rebooted to apply the update",
+    "auto-rollback": (d) => "Rolled back automatically after failed health checks" +
+        (d.to_version ? " — running " + d.to_version : ""),
+    "undo": (d) => "Returned to " + (d.version || "the previous version"),
+    "factory-reset-started": () => "Factory reset started — /data untouched",
+    "factory-reset-deployed": () => "Factory reset restored the install image",
+    "identity-applied": () => "Restored this machine's identity from its data",
+    "console_unlocked": () => "Unlocked the full console",
+    "recovery-pinned": () => "Protected the install image as the reset target",
+};
+const EVENT_DOT = {
+    "auto-rollback": "warn",
+    "factory-reset-started": "warn",
+    "factory-reset-deployed": "warn",
+    "update-applied": "ok",
+    "undo": "ok",
+    "setup-hostname": "ok",
+    "setup-account": "ok",
+    "setup-share": "ok",
+    "identity-applied": "ok",
+};
+
+function renderVerdict(st) {
+    const word = $("verdict-word");
+    if (st.verdict === "OK") {
+        word.className = "verdict-word ok";
+        word.textContent = "Everything is fine.";
+        $("verdict-plain").textContent = st.staged
+            ? "An update is staged; it applies on the reboot you choose."
+            : "Running the version this machine booted with, all checks passing.";
+    } else if (st.verdict === "RECOVERED") {
+        const to = (st.last_rollback && st.last_rollback.to_version) || st.booted;
+        word.className = "verdict-word warn";
+        word.textContent = "Recovered itself. Nothing was lost.";
+        $("verdict-plain").textContent =
+            "An update failed its health checks and was rolled back " +
+            "automatically" + (to ? " — running " + to : "") +
+            ". Your data volume was never touched.";
+    } else {
+        word.className = "verdict-word bad";
+        word.textContent = "Something needs attention.";
+        $("verdict-plain").textContent =
+            "Your data is still served. Run luke doctor over ssh for the " +
+            "exact next step.";
+    }
+    $("verdict-meta").textContent = "booted " + (st.booted || "unknown") +
+        (st.staged ? " · staged " + st.staged : "") +
+        (st.rollback ? " · rollback target " + st.rollback : "");
+}
+
+function renderTimeline(events) {
+    const list = $("timeline");
+    list.textContent = "";
+    if (!events || !events.length) {
+        const li = document.createElement("li");
+        li.className = "muted";
+        li.textContent = "No events recorded yet.";
+        list.appendChild(li);
+        return;
+    }
+    // Newest first: the question is "what just happened", not "how it began".
+    events.slice().reverse().forEach((ev) => {
+        const li = document.createElement("li");
+        const dot = document.createElement("span");
+        dot.className = "event-dot " + (EVENT_DOT[ev.type] || "");
+        const what = document.createElement("p");
+        what.className = "event-what";
+        const say = EVENT_TEXT[ev.type];
+        what.textContent = say ? say(ev.detail || {}) : ev.type;
+        const meta = document.createElement("p");
+        meta.className = "event-meta";
+        const d = ev.detail || {};
+        const facts = [(ev.ts || "").replace("T", " ").replace("Z", "")];
+        if (d.version) facts.push(d.version);
+        if (d.digest) facts.push(String(d.digest).slice(0, 19));
+        meta.textContent = facts.filter(Boolean).join(" · ");
+        li.appendChild(dot);
+        li.appendChild(what);
+        li.appendChild(meta);
+        list.appendChild(li);
+    });
+}
+
+/* Hold-to-run (bone #5): ~900ms hold, drain on release, no modal. The
+ * machine's own guards (LUKE-E030/31/32) are the safety net — their `what`
+ * sentence lands in the hint, never a dead end. */
+function armUndo(st) {
+    const btn = $("undo");
+    const hint = $("undo-hint");
+    btn.classList.remove("holding", "done");
+    if (st.staged) {
+        btn.disabled = true;
+        $("undo-label").textContent = "Return to the previous version";
+        hint.textContent = "An update is staged; undo would be ambiguous. " +
+            "Reboot to apply it first.";
+        return;
+    }
+    if (!st.rollback) {
+        btn.disabled = true;
+        $("undo-label").textContent = "Return to the previous version";
+        hint.textContent = "Nothing to return to yet — the rollback target " +
+            "arms after your first update.";
+        return;
+    }
+    btn.disabled = false;
+    $("undo-label").textContent = "Return to " + st.rollback;
+    hint.textContent = "Hold to run — let go anytime and nothing happens.";
+}
+
+function wireUndo() {
+    const btn = $("undo");
+    const hint = $("undo-hint");
+    let timer = null;
+    const start = (ev) => {
+        if (btn.disabled || btn.classList.contains("done")) return;
+        ev.preventDefault();
+        btn.classList.add("holding");
+        timer = window.setTimeout(() => {
+            btn.classList.remove("holding");
+            btn.disabled = true;
+            luke(["undo"])
+                .then((res) => {
+                    btn.classList.add("done");
+                    $("undo-label").textContent =
+                        "Returned. " + (res.boots_next || "The previous version") +
+                        " boots next.";
+                    hint.textContent = "Reboot when you like — the journal " +
+                        "below already recorded it.";
+                    refreshLanding();
+                })
+                .catch((err) => {
+                    btn.disabled = false;
+                    hint.textContent = (err && err.what)
+                        ? err.what + (err.next ? " — " + err.next : "")
+                        : "Undo failed — luke status over ssh has the story.";
+                });
+        }, 900);
+    };
+    const cancel = () => {
+        btn.classList.remove("holding");
+        if (timer) { window.clearTimeout(timer); timer = null; }
+    };
+    btn.addEventListener("pointerdown", start);
+    btn.addEventListener("pointerup", cancel);
+    btn.addEventListener("pointerleave", cancel);
+    btn.addEventListener("keydown", (ev) => {
+        if ((ev.key === " " || ev.key === "Enter") && !ev.repeat) start(ev);
+    });
+    btn.addEventListener("keyup", cancel);
+}
+
+/* One status --events call feeds the verdict, the timeline, the undo state,
+ * and the version fact — the luke verbs stay the only privileged API. */
+function refreshLanding() {
+    return luke(["status", "--events"])
+        .then((st) => {
+            renderVerdict(st);
+            renderTimeline(st.events);
+            armUndo(st);
+            $("done-version").textContent = st.booted || "—";
+        })
+        .catch(() => {
+            $("verdict-word").className = "verdict-word";
+            $("verdict-word").textContent = "Status is unavailable.";
+            $("verdict-plain").textContent =
+                "luke status over ssh still has the story.";
+        });
+}
+
 /* The landing page: with the stock pages hidden (SPEC §6), this is what
- * :9090 is once setup is done — facts, shares with the addresses that open
- * them, and the strip above. */
+ * :9090 is once setup is done — the verdict as a sentence, the timeline,
+ * the undo control, then the machine's facts and shares. */
 function renderLanding(status) {
     const host = state.address || window.location.hostname;
     const nas = (status.hostname && status.hostname.value) || null;
@@ -151,18 +331,18 @@ function renderLanding(status) {
     $("done-user").textContent = state.user || "—";
     const shares = (status.share && status.share.shares) || [];
     if (shares.length) {
-        $("done-share-list").innerHTML = shares.map((s) => {
+        const list = $("done-share-list");
+        list.textContent = "";
+        shares.forEach((s) => {
             const el = document.createElement("li");
             el.textContent = s + " — ";
             const code = document.createElement("code");
             code.textContent = "smb://" + host + "/" + s;
             el.appendChild(code);
-            return el.outerHTML;
-        }).join("");
+            list.appendChild(el);
+        });
     }
-    luke(["status"])
-        .then((st) => { $("done-version").textContent = st.booted || "—"; })
-        .catch(() => { /* the strip poll reports OS state on its own */ });
+    refreshLanding();
     show("view-done");
 }
 
@@ -394,7 +574,25 @@ function submitStep4(ev) {
 
 /* ── wiring ──────────────────────────────────────────────────────────── */
 
+/* A user theme is one CSS file that redefines --ln-* token values
+ * (DESIGN.md § Theming). It is read through cockpit's channel — the page
+ * itself has no filesystem — and injected after setup.css so its :root
+ * wins. Absent file, absent style: the default theme IS the absence. */
+function loadUserTheme() {
+    cockpit.file("/etc/lukenasos/theme.css").read()
+        .then((content) => {
+            if (!content) return;
+            const style = document.createElement("style");
+            style.id = "user-theme";
+            style.textContent = content;
+            document.head.appendChild(style);
+        })
+        .catch(() => { /* no theme file is the normal case */ });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+    loadUserTheme();
+    wireUndo();
     $("form-step1").addEventListener("submit", submitStep1);
     $("form-step2").addEventListener("submit", submitStep2);
     $("form-step3").addEventListener("submit", submitStep3);

@@ -278,7 +278,7 @@ annotation.
 
 | Verb | Meaning |
 |------|---------|
-| `luke status` | current state; `--events` for history; `--json` for machines |
+| `luke status` | current state; `--events` for history; `--json` for machines (combined, the JSON carries an `events` array — the dashboard's journal feed) |
 | `luke update` | check, verify, stage. `--reboot` to activate. `--check` to look only |
 | `luke undo` | the one user-facing "take it back" — reverts the last change |
 | `luke rollback` | alias for `luke undo --os` |

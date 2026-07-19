@@ -284,6 +284,111 @@ button[type="submit"]:focus-visible,
 .share-list { margin: 0; padding-left: 1.25rem; }
 .share-list li { margin: 0.25rem 0; }
 
+/* ── the landing / timeline dashboard (DESIGN.md bones #1, #4, #5) ────── */
+
+#view-done { display: grid; gap: 1rem; }
+
+/* The verdict is a sentence, first — Fraunces speaks it; color agrees. */
+.verdict-word {
+    font-family: "Fraunces", serif;
+    font-weight: 600;
+    font-variation-settings: "opsz" 40, "SOFT" 60;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 0 0 0.4rem;
+    text-wrap: balance;
+}
+.verdict-word.ok   { color: var(--ln-ok); }
+.verdict-word.warn { color: var(--ln-recovered); }
+.verdict-word.bad  { color: var(--ln-degraded); }
+.verdict-plain { margin: 0 0 0.6rem; max-width: 52ch; }
+.verdict-meta {
+    font-family: "Commit Mono", monospace;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ln-muted);
+    margin: 0;
+}
+
+/* The timeline: newest at the top, each event a substantial row — plain
+   words first, evidence in mono underneath. */
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline > li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.1rem 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--ln-line);
+}
+.timeline > li:last-child { border-bottom: 0; }
+.event-dot {
+    grid-row: 1 / span 2;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--ln-line);
+    margin-top: 0.45rem;
+}
+.event-dot.ok   { background: var(--ln-ok); }
+.event-dot.warn { background: var(--ln-recovered); }
+.event-what { margin: 0; font-weight: 500; }
+.event-meta {
+    font-family: "Commit Mono", monospace;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ln-muted);
+    margin: 0;
+    word-break: break-all;
+}
+
+/* Hold-to-run (bone #5): the fill sweeps leftward — literally rewinding —
+   and drains with no penalty on release. Never a confirmation modal. */
+.undo-wrap { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--ln-line); }
+.undo {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--ln-accent);
+    background: transparent;
+    border: 1.5px solid var(--ln-accent);
+    border-radius: 6px;
+    cursor: pointer;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+.undo:disabled {
+    color: var(--ln-muted);
+    border-color: var(--ln-line);
+    cursor: default;
+}
+.undo:focus-visible { outline: 2px solid var(--ln-accent); outline-offset: 2px; }
+.undo .fill {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 0%;
+    background: var(--ln-accent);
+    opacity: 0.18;
+    transition: width 0.15s ease-out;
+    pointer-events: none;
+}
+.undo.holding .fill { transition: width 0.9s linear; width: 100%; }
+.undo.done {
+    background: var(--ln-accent);
+    color: var(--ln-on-accent);
+}
+.undo.done .fill { display: none; }
+.undo-label { position: relative; }
+.undo-hint { margin: 0.5rem 0 0; }
+@media (prefers-reduced-motion: reduce) {
+    .undo .fill, .undo.holding .fill { transition: none; }
+}
+
 .interstitial {
     position: fixed;
     inset: 0;

@@ -161,24 +161,46 @@
 
     <!-- Setup is complete (this run or an earlier one): the landing page.
          The stock pages are hidden (SPEC §6), so this is what :9090 IS after
-         setup — the health strip above, the machine's facts, and every share
-         with the address that opens it. The seed of the timeline dashboard,
-         not a placeholder. -->
-    <section id="view-done" class="card" hidden>
-        <h2 id="done-title">This NAS is set up</h2>
-        <dl class="facts">
-            <dt>NAS name</dt><dd id="done-hostname">—</dd>
-            <dt>Administrator</dt><dd id="done-user">—</dd>
-            <dt>OS version</dt><dd id="done-version">—</dd>
-        </dl>
-        <h3>Shares</h3>
-        <ul class="share-list" id="done-share-list">
-            <li class="muted">none yet — make one over ssh with
-                <code>luke setup share</code></li>
-        </ul>
-        <p class="muted">Open a share with the same name and password you sign
-           in with here. Updates and recovery live in the <code>luke</code>
-           command over ssh until the dashboard lands.</p>
+         setup. Verdict first as a sentence (DESIGN.md, bone #1), then the
+         timeline — what changed and where you can return to — then the
+         machine's facts and shares. The undo control is the largest control
+         on the page (bone #5): hold-to-run, no confirmation modal. -->
+    <section id="view-done" hidden>
+        <div class="card verdict-card">
+            <p class="verdict-word" id="verdict-word">—</p>
+            <p id="verdict-plain" class="verdict-plain"></p>
+            <p class="verdict-meta" id="verdict-meta"></p>
+        </div>
+
+        <div class="card timeline-card">
+            <h2>What happened on this machine</h2>
+            <ul class="timeline" id="timeline">
+                <li class="muted">Reading the journal&hellip;</li>
+            </ul>
+            <div class="undo-wrap">
+                <button type="button" class="undo" id="undo" disabled>
+                    <span class="fill"></span>
+                    <span class="undo-label" id="undo-label">Return to the previous version</span>
+                </button>
+                <p class="muted undo-hint" id="undo-hint"></p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 id="done-title">This NAS is set up</h2>
+            <dl class="facts">
+                <dt>NAS name</dt><dd id="done-hostname">—</dd>
+                <dt>Administrator</dt><dd id="done-user">—</dd>
+                <dt>OS version</dt><dd id="done-version">—</dd>
+            </dl>
+            <h3>Shares</h3>
+            <ul class="share-list" id="done-share-list">
+                <li class="muted">none yet — make one over ssh with
+                    <code>luke setup share</code></li>
+            </ul>
+            <p class="muted">Open a share with the same name and password you sign
+               in with here.</p>
+        </div>
     </section>
 </main>
 

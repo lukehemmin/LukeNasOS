@@ -65,6 +65,17 @@ if [ "$JSON" = 1 ]; then
     # bug — describing a machine that does not exist — as an API.
     pinned=false
     pinned_deployment_exists && pinned=true
+    # --events adds the journal as an array (newest last, capped at 200) —
+    # the timeline dashboard's data source. The luke verbs are the only
+    # privileged API (SPEC §6), so the journal is served here, not by
+    # letting a web page read state files.
+    events_json=null
+    if [ "$show_events" = 1 ]; then
+        events_json='[]'
+        if [ -f "$LUKE_EVENTS" ]; then
+            events_json=$(tail -n 200 "$LUKE_EVENTS" | jq -cs '.' 2>/dev/null || echo '[]')
+        fi
+    fi
     jq -n \
         --arg verdict "$verdict" \
         --arg booted "$booted_ver" \
@@ -72,13 +83,15 @@ if [ "$JSON" = 1 ]; then
         --arg rollback "${rollback_ver:-}" \
         --arg staged_lost "${staged_lost:-no}" \
         --argjson pinned "$pinned" \
+        --argjson events "$events_json" \
         --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
         '{verdict: $verdict, booted: $booted,
           staged: (if $staged == "" then null else $staged end),
           rollback: (if $rollback == "" then null else $rollback end),
           staged_lost: ($staged_lost == "yes"),
           pinned: $pinned,
-          last_rollback: $cause[0]}'
+          last_rollback: $cause[0]}
+         + (if $events == null then {} else {events: $events} end)'
     exit "$EXIT_OK"
 fi
 
