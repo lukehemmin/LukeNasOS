@@ -1000,6 +1000,7 @@ verify_static() {
             "$REPO_ROOT"/tests/wizard-e2e/wizard.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/undo.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/recovered.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/landing-responsive.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1160,8 +1161,18 @@ wizard_browser() {
            COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
            npx playwright test recovered.spec.js )
 
+    # ── the surface DESIGN.md promised: a phone, and the dark ──
+    # Read-only, so it runs last against the finished landing: no desktop that
+    # merely stacks — the first-contact device is a phone next to the NAS — and
+    # dark mode with the same care as light. Every other screenshot here is a
+    # 1280px light desktop; these two are the only proof of the other surface.
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_RESPONSIVE=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test landing-responsive.spec.js )
+
     kill_vm
-    say "WIZARD BROWSER E2E COMPLETE — the wizard, a real hold-to-run undo, AND the recovered dashboard"
+    say "WIZARD BROWSER E2E COMPLETE — the wizard, hold-to-run undo, the recovered dashboard, on desktop and phone, light and dark"
 }
 
 clean() {
