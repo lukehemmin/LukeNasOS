@@ -133,22 +133,29 @@ function renderStrip(st) {
  * that stages, applies, or rolls itself back while the owner is watching
  * appears without a manual reload — the "live proof, not a static claim"
  * principle (design finding 3.4), extended from the strip to the whole page.
- * During the wizard steps view-done is hidden and only the strip refreshes. */
+ *
+ * On the landing, ONE status --events fetch feeds the strip AND the verdict/
+ * timeline/undo (refreshLanding renders the strip too). The first cut fetched
+ * status twice per tick — once for the strip, once for the landing — and a
+ * state change (an ack) landing between them left the strip and the verdict
+ * disagreeing for a whole tick, which a real machine caught. During the wizard
+ * steps view-done is hidden and only the strip refreshes, on its own fetch. */
 function pollStrip() {
+    const onLanding = !$("view-done").hidden;
+    const done = () => window.setTimeout(pollStrip, 15000);
+    if (onLanding) {
+        // Never re-arm mid-hold (a poll must not reset the button under the
+        // finger) or after a completed undo (its confirmation must survive).
+        refreshLanding(!undoDone && !undoHolding)
+            .then(() => renderStorage())
+            .catch(() => {})
+            .then(done);
+        return;
+    }
     luke(["status"])
         .then(renderStrip)
         .catch(() => { /* the strip is ambient; routing owns error surfaces */ })
-        .then(() => {
-            if (!$("view-done").hidden) {
-                // Never re-arm mid-hold (a poll must not reset the button under
-                // the finger) or after a completed undo (its confirmation must
-                // survive). The verdict, timeline, and storage still refresh.
-                refreshLanding(!undoDone && !undoHolding);
-                renderStorage();
-            }
-        })
-        .catch(() => { /* a live refresh failing must not stop the next tick */ })
-        .then(() => window.setTimeout(pollStrip, 15000));
+        .then(done);
     // .catch().then(), not .finally(): cockpit's promise flavor predates it.
 }
 
@@ -346,8 +353,11 @@ function wireUndo() {
     btn.addEventListener("keyup", cancel);
 }
 
-/* One status --events call feeds the verdict, the timeline, the undo state,
- * and the version fact — the luke verbs stay the only privileged API.
+/* One status --events call feeds the strip, the verdict, the timeline, the
+ * undo state, and the version fact — all from the SAME snapshot, so the strip
+ * and the verdict can never disagree within a tick (the bug a real machine
+ * caught: two fetches straddling an ack). The luke verbs stay the only
+ * privileged API.
  *
  * rearm=false after a successful undo: re-arming would offer to undo again,
  * and a second undo re-activates the exact version just escaped (the undo
@@ -356,6 +366,7 @@ function wireUndo() {
 function refreshLanding(rearm) {
     return luke(["status", "--events"])
         .then((st) => {
+            renderStrip(st);
             renderVerdict(st);
             renderTimeline(st.events);
             if (rearm !== false) armUndo(st);
