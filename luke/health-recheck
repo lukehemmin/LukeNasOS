@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# luke health-recheck — the live half of the health verdict.
+#
+# greenboot's required checks run once, at boot, so a fault that develops AFTER
+# boot — a share's file server dying, the pool filling toward ENOSPC — never
+# re-fails greenboot-healthcheck, and `luke status` would keep saying ● OK
+# while the NAS was not serving. This runs on a timer, does INSTANT probes
+# (post-boot there is no startup to wait out, so none of the boot check's grace
+# windows are needed), and writes a marker current_verdict reads. The verdict
+# then reflects the machine NOW, not just how it booted.
+#
+# It never touches the boot/rollback machinery — it only writes one marker file
+# that lib.sh's current_verdict already knows how to read.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+MARKER="$LUKE_STATE_DIR/health-degraded"
+mkdir -p "$LUKE_STATE_DIR"
+
+fails=()
+
+# The data mount: without it, shares are down and nothing here is a NAS.
+mountpoint -q /var/mnt/data 2>/dev/null || fails+=("the data volume is not mounted")
+
+# The units a working NAS answers on. Instant is-active, no grace window: a
+# boot finished long ago, so "not active" now is a real fault, not a race with
+# startup (which is the whole reason the boot check waits and this one does not).
+for unit in sshd.service cockpit.socket; do
+    systemctl is-active --quiet "$unit" || fails+=("$unit is not running")
+done
+
+# File sharing, once a share exists (samba.env). No first-boot forgiveness
+# here, unlike the boot check: post-boot the image is long since pulled, so a
+# share that exists with samba down is a plain fault.
+if [ -f /var/mnt/data/.lukenasos/samba.env ]; then
+    systemctl is-active --quiet samba.service \
+        || fails+=("file sharing (samba) is not running")
+fi
+
+# The btrfs floor luke doctor and the space watchdog watch: metadata
+# exhaustion, not just free bytes, is what makes /var unwritable and breaks
+# the "never dies" promise.
+POOL=/sysroot
+mountpoint -q "$POOL" 2>/dev/null || POOL=/
+if command -v btrfs >/dev/null 2>&1 && btrfs filesystem usage -b "$POOL" >/dev/null 2>&1; then
+    unalloc=$(btrfs filesystem usage -b "$POOL" 2>/dev/null | awk '/unallocated:/ {print $3; exit}')
+    if [ -n "$unalloc" ] && [ "$unalloc" -lt $((2 * 1024 * 1024 * 1024)) ] 2>/dev/null; then
+        fails+=("pool space is critically low")
+    fi
+fi
+
+if [ "${#fails[@]}" -gt 0 ]; then
+    cause=$(printf '%s; ' "${fails[@]}")
+    cause=${cause%; }
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cause "$cause" \
+        '{ts: $ts, cause: $cause}' > "$MARKER"
+    persist "$MARKER"
+else
+    rm -f "$MARKER"
+fi
+exit 0

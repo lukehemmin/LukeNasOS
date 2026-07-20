@@ -1,0 +1,14 @@
+# The live half of the health verdict: re-run the health probes AFTER boot so
+# a fault that develops later (a share's server dying, the pool filling) turns
+# luke's verdict ✕ DEGRADED, instead of luke status saying OK forever because
+# greenboot only ran its checks once, at boot. Writes a marker current_verdict
+# reads; touches nothing else.
+[Unit]
+Description=LukeNasOS live health re-check (post-boot degradation → DEGRADED verdict)
+Documentation=https://github.com/lukehemmin/LukeNasOS
+ConditionPathExists=/usr/libexec/lukenasos/health-recheck
+After=var-mnt-data.mount
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/lukenasos/health-recheck

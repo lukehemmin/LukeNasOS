@@ -1,0 +1,14 @@
+# Every five minutes: often enough that a verdict of ● OK is never badly out of
+# date, cheap enough (a handful of instant is-active probes) to run all day.
+# Also fires shortly after boot so the live marker is fresh without waiting a
+# full interval.
+[Unit]
+Description=LukeNasOS live health re-check timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

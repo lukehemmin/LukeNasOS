@@ -971,7 +971,8 @@ verify_static() {
             "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
             "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
             "$REPO_ROOT"/luke/setup "$REPO_ROOT"/luke/identity-apply \
-            "$REPO_ROOT"/luke/storage "$REPO_ROOT"/luke/unlock-console \
+            "$REPO_ROOT"/luke/storage "$REPO_ROOT"/luke/health-recheck \
+            "$REPO_ROOT"/luke/unlock-console \
             "$REPO_ROOT"/luke/lib.sh \
             "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
             "$REPO_ROOT"/config/greenboot/red.d/*.sh \
@@ -1013,6 +1014,7 @@ verify_static() {
             "$REPO_ROOT"/tests/wizard-e2e/recovered.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/landing-responsive.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/live-refresh.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/degraded.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1192,6 +1194,28 @@ wizard_browser() {
         && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_LIVE=1 \
            COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
            npx playwright test live-refresh.spec.js )
+
+    # ── the third verdict: DEGRADED, from a real post-boot degradation ──
+    # greenboot only runs at boot, so a fault that develops later never re-fails
+    # it. The live health re-check (lukenasos-health.timer) is what catches that.
+    # Prove it end to end: kill the share's file server on the running machine —
+    # a realistic degradation, the OS fine but the NAS no longer serving — run
+    # the re-check, and the verdict turns ✕ DEGRADED. (An explicit stop is not a
+    # failure, so samba's Restart=on-failure leaves it down.) Then the browser
+    # confirms the dashboard names the fault. samba is restarted after.
+    say "degraded state: the file server dies post-boot; the live re-check catches it"
+    vm_root systemctl stop samba.service
+    vm_root systemctl start lukenasos-health.service
+    assert_eq "the verdict turned DEGRADED" "DEGRADED" \
+        "$(vm_root luke status --json | jq -r .verdict)"
+    assert_eq "the cause names the file server" "true" \
+        "$(vm_root luke status --json | jq -r '.degraded_cause | test("samba")')"
+    wait_cockpit
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_DEGRADED=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test degraded.spec.js )
+    vm_root systemctl start samba.service || true
 
     kill_vm
     say "WIZARD BROWSER E2E COMPLETE — the wizard, hold-to-run undo, the recovered dashboard, on desktop and phone, light and dark"

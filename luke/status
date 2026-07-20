@@ -73,6 +73,13 @@ if [ "$JSON" = 1 ]; then
     rollback_blocked=false
     rb_dig=$(jq -r '.status.rollback.image.imageDigest // empty' <<<"$bootc_json")
     [ -n "$rb_dig" ] && digest_blocked "$rb_dig" && rollback_blocked=true
+    # degraded_cause: when the live re-check has marked the machine degraded,
+    # WHAT it found (e.g. "file sharing (samba) is not running"). The dashboard
+    # shows it in place of a generic message that might wrongly promise the data
+    # is fine. Null unless the marker is present.
+    degraded_cause=""
+    [ -f "$LUKE_STATE_DIR/health-degraded" ] \
+        && degraded_cause=$(jq -r '.cause // ""' "$LUKE_STATE_DIR/health-degraded" 2>/dev/null || echo "")
     # --events adds the journal as an array (newest last, capped at 200) —
     # the timeline dashboard's data source. The luke verbs are the only
     # privileged API (SPEC §6), so the journal is served here, not by
@@ -92,12 +99,14 @@ if [ "$JSON" = 1 ]; then
         --arg staged_lost "${staged_lost:-no}" \
         --argjson pinned "$pinned" \
         --argjson rollback_blocked "$rollback_blocked" \
+        --arg degraded_cause "$degraded_cause" \
         --argjson events "$events_json" \
         --slurpfile cause <(if [ -f "$LUKE_ROLLBACK_CAUSE" ]; then cat "$LUKE_ROLLBACK_CAUSE"; else echo null; fi) \
         '{verdict: $verdict, booted: $booted,
           staged: (if $staged == "" then null else $staged end),
           rollback: (if $rollback == "" then null else $rollback end),
           rollback_blocked: $rollback_blocked,
+          degraded_cause: (if $degraded_cause == "" then null else $degraded_cause end),
           staged_lost: ($staged_lost == "yes"),
           pinned: $pinned,
           last_rollback: $cause[0]}

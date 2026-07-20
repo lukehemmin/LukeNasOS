@@ -175,12 +175,16 @@ require_root() {
 # The verdict is the first thing a user must learn, in half a second.
 # OK        — booted deployment is the one we expected.
 # RECOVERED — greenboot rolled us back; cause is persisted.
-# DEGRADED  — a required health check is failing right now.
+# DEGRADED  — a health check is failing. Two sources, because greenboot only
+#             runs at boot: its boot-time verdict (is-failed), AND the live
+#             re-check's marker (lukenasos-health.timer), so a fault that
+#             develops AFTER boot surfaces instead of the verdict staying OK.
 current_verdict() {
     if [ -f "$LUKE_ROLLBACK_CAUSE" ] && [ ! -f "$LUKE_STATE_DIR/recovered-acked" ]; then
         echo RECOVERED; return
     fi
-    if systemctl is-failed --quiet greenboot-healthcheck.service 2>/dev/null; then
+    if [ -f "$LUKE_STATE_DIR/health-degraded" ] \
+        || systemctl is-failed --quiet greenboot-healthcheck.service 2>/dev/null; then
         echo DEGRADED; return
     fi
     echo OK
