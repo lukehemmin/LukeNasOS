@@ -296,6 +296,10 @@ annotation.
   screen and search that code.
 - **Never color alone:** `● OK` / `▲ RECOVERED` / `✕ DEGRADED` — symbol plus color, for
   serial consoles and color-blind users.
+- **The verdict is live, not just boot-time:** greenboot judges the boot; a timer
+  (`lukenasos-health.timer` → `luke health-recheck`) re-runs instant health probes after
+  boot and marks `✕ DEGRADED` when a fault develops later (a share's server dying, the pool
+  filling), so `luke status` reflects the machine now. `--json` carries `degraded_cause`.
 - Progress is text, never a spinner (serial-console and log safe), and is suppressed when
   stdout is not a TTY.
 - English is the language of the CLI, the README, and all error messages.
