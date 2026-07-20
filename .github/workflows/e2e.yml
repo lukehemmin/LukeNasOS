@@ -274,11 +274,13 @@ jobs:
     # control and the harness reboots to prove the machine actually went back a
     # version. Finally it breaks an update on purpose and lets greenboot roll
     # it back, so the browser can render the RECOVERED dashboard — the
-    # product's headline state. Last, read-only, it screenshots the finished
-    # landing on a phone viewport and in dark mode (DESIGN.md's mobile-first and
-    # dual-theme commitments, proven nowhere else). A separate job with its own
-    # fresh install, because the wizard mutates the machine exactly the way
-    # phase 1c does: the two can never share a disk.
+    # product's headline state. Then it screenshots the finished landing on a
+    # phone viewport and in dark mode (DESIGN.md's mobile-first and dual-theme
+    # commitments, proven nowhere else), and last acknowledges the recovery
+    # through the plugin's own channel to prove the dashboard refreshes itself
+    # with no reload. A separate job with its own fresh install, because the
+    # wizard mutates the machine exactly the way phase 1c does: the two can
+    # never share a disk.
     runs-on: ubuntu-latest
     needs: build
     steps:
