@@ -281,6 +281,7 @@ annotation.
 | `luke status` | current state; `--events` for history; `--json` for machines (combined, the JSON carries an `events` array — the dashboard's journal feed) |
 | `luke update` | check, verify, stage. `--reboot` to activate. `--check` to look only |
 | `luke undo` | the one user-facing "take it back" — reverts the last change |
+| `luke storage` | how full the data pool is; `pressure` flags the btrfs floor `luke doctor` watches |
 | `luke rollback` | alias for `luke undo --os` |
 | `luke factory-reset` | reset the OS, keep the data. Long name on purpose |
 | `luke doctor` | active checks → a verdict and the exact command that fixes it |

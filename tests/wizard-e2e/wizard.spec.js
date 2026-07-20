@@ -157,6 +157,15 @@ test("the first-boot wizard, end to end, as the owner", async ({ page }) => {
         await expect(wizard(page).locator("#undo")).toBeDisabled();
         await expect(wizard(page).locator("#undo-hint")).toContainText(
             "arms after your first update");
+    });
+
+    await test.step("the storage panel reports the pool, with real numbers", async () => {
+        // The plainest NAS question — how full — answered from luke storage.
+        // The panel is hidden until the verb answers, so its visibility is the
+        // proof the verb ran; the figure must be an actual "X of Y (Z%)".
+        await expect(wizard(page).locator("#storage")).toBeVisible({ timeout: 30000 });
+        await expect(wizard(page).locator("#storage-figure")).toContainText(/\bof\b/);
+        await expect(wizard(page).locator("#storage-figure")).toContainText(/\d+%/);
         await page.screenshot({ path: `${SCREENS}/08-landing.png`, fullPage: true });
     });
 });

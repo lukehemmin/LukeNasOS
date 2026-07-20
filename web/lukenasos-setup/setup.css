@@ -284,6 +284,43 @@ button[type="submit"]:focus-visible,
 .share-list { margin: 0; padding-left: 1.25rem; }
 .share-list li { margin: 0.25rem 0; }
 
+/* Storage: supporting evidence, understated (DESIGN.md). A thin bar in the
+   accent, or the degraded token when the pool is under pressure. */
+.storage { margin: 1rem 0 0.25rem; }
+.storage-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 0 0 0.35rem;
+    font-weight: 500;
+}
+.storage-figure {
+    font-family: "Commit Mono", monospace;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    color: var(--ln-muted);
+}
+.storage-bar {
+    height: 8px;
+    background: var(--ln-line);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.storage-fill {
+    height: 100%;
+    width: 0;
+    background: var(--ln-accent);
+    border-radius: 4px;
+    transition: width 0.3s ease-out;
+}
+.storage-fill.pressure { background: var(--ln-degraded); }
+.storage-note { margin: 0.4rem 0 0; }
+@media (prefers-reduced-motion: reduce) {
+    .storage-fill { transition: none; }
+}
+
 /* ── the landing / timeline dashboard (DESIGN.md bones #1, #4, #5) ────── */
 
 #view-done { display: grid; gap: 1rem; }

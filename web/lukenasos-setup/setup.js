@@ -341,9 +341,48 @@ function refreshLanding(rearm) {
         });
 }
 
+/* Bytes as a person reads them — IEC (1024), matching the verb's numfmt. */
+function humanBytes(n) {
+    if (n === null || n === undefined) return "—";
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+    const shown = (i === 0 || v >= 100) ? Math.round(v) : Math.round(v * 10) / 10;
+    return shown + " " + units[i];
+}
+
+/* Storage is supporting evidence (DESIGN.md), so a failure hides the panel
+ * rather than shouting: the verdict and timeline above carry the machine's
+ * health, and a NAS that cannot read its own df is a luke doctor problem, not
+ * a landing-page one. */
+function renderStorage() {
+    return luke(["storage"])
+        .then((s) => {
+            const d = s.data;
+            if (!d || !d.total_bytes) { $("storage").hidden = true; return; }
+            const pct = Math.max(0, Math.min(100, d.percent_used));
+            const fill = $("storage-fill");
+            fill.style.width = pct + "%";
+            fill.classList.toggle("pressure", !!(s.pool && s.pool.pressure));
+            $("storage-figure").textContent =
+                humanBytes(d.used_bytes) + " of " + humanBytes(d.total_bytes) +
+                " (" + d.percent_used + "%)";
+            const note = $("storage-note");
+            if (s.pool && s.pool.pressure) {
+                note.textContent = "Pool space is tight — run luke doctor over ssh.";
+                note.hidden = false;
+            } else {
+                note.hidden = true;
+            }
+            $("storage").hidden = false;
+        })
+        .catch(() => { $("storage").hidden = true; });
+}
+
 /* The landing page: with the stock pages hidden (SPEC §6), this is what
  * :9090 is once setup is done — the verdict as a sentence, the timeline,
- * the undo control, then the machine's facts and shares. */
+ * the undo control, then the machine's facts, storage, and shares. */
 function renderLanding(status) {
     const host = state.address || window.location.hostname;
     const nas = (status.hostname && status.hostname.value) || null;
@@ -365,6 +404,7 @@ function renderLanding(status) {
         });
     }
     refreshLanding();
+    renderStorage();
     show("view-done");
 }
 
