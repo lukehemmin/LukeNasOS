@@ -21,6 +21,14 @@ const STEP_NAMES = ["Account", "Network", "First share", "Done"];
 /* What the wizard learned at routing time, reused by later steps. */
 const state = { user: null, share: null, address: null };
 
+/* Set once the owner completes an undo, so the live poll stops re-arming the
+ * control: its "Returned. vX boots next." message must survive every refresh,
+ * and re-arming would offer the double-undo the undo verb warns against.
+ * undoHolding guards the ~900ms press itself — a poll landing mid-hold must
+ * not let armUndo reset the button out from under the finger. */
+let undoDone = false;
+let undoHolding = false;
+
 function renderPills(current) {
     $("pills").innerHTML = STEP_NAMES.map((n, i) => {
         const cls = (i + 1 === current) ? "pill current" : "pill";
@@ -120,11 +128,34 @@ function renderStrip(st) {
     seg("seg-version", "pending", st.booted || "");
 }
 
+/* The dashboard is live, not a snapshot: the same 15s tick that keeps the
+ * strip honest also re-renders the landing when it is showing, so an update
+ * that stages, applies, or rolls itself back while the owner is watching
+ * appears without a manual reload — the "live proof, not a static claim"
+ * principle (design finding 3.4), extended from the strip to the whole page.
+ *
+ * On the landing, ONE status --events fetch feeds the strip AND the verdict/
+ * timeline/undo (refreshLanding renders the strip too). The first cut fetched
+ * status twice per tick — once for the strip, once for the landing — and a
+ * state change (an ack) landing between them left the strip and the verdict
+ * disagreeing for a whole tick, which a real machine caught. During the wizard
+ * steps view-done is hidden and only the strip refreshes, on its own fetch. */
 function pollStrip() {
+    const onLanding = !$("view-done").hidden;
+    const done = () => window.setTimeout(pollStrip, 15000);
+    if (onLanding) {
+        // Never re-arm mid-hold (a poll must not reset the button under the
+        // finger) or after a completed undo (its confirmation must survive).
+        refreshLanding(!undoDone && !undoHolding)
+            .then(() => renderStorage())
+            .catch(() => {})
+            .then(done);
+        return;
+    }
     luke(["status"])
         .then(renderStrip)
         .catch(() => { /* the strip is ambient; routing owns error surfaces */ })
-        .then(() => window.setTimeout(pollStrip, 15000));
+        .then(done);
     // .catch().then(), not .finally(): cockpit's promise flavor predates it.
 }
 
@@ -283,12 +314,15 @@ function wireUndo() {
     const start = (ev) => {
         if (btn.disabled || btn.classList.contains("done")) return;
         ev.preventDefault();
+        undoHolding = true;
         btn.classList.add("holding");
         timer = window.setTimeout(() => {
+            undoHolding = false;
             btn.classList.remove("holding");
             btn.disabled = true;
             luke(["undo"])
                 .then((res) => {
+                    undoDone = true;
                     btn.classList.add("done");
                     $("undo-label").textContent =
                         "Returned. " + (res.boots_next || "The previous version") +
@@ -306,6 +340,7 @@ function wireUndo() {
         }, 900);
     };
     const cancel = () => {
+        undoHolding = false;
         btn.classList.remove("holding");
         if (timer) { window.clearTimeout(timer); timer = null; }
     };
@@ -318,8 +353,11 @@ function wireUndo() {
     btn.addEventListener("keyup", cancel);
 }
 
-/* One status --events call feeds the verdict, the timeline, the undo state,
- * and the version fact — the luke verbs stay the only privileged API.
+/* One status --events call feeds the strip, the verdict, the timeline, the
+ * undo state, and the version fact — all from the SAME snapshot, so the strip
+ * and the verdict can never disagree within a tick (the bug a real machine
+ * caught: two fetches straddling an ack). The luke verbs stay the only
+ * privileged API.
  *
  * rearm=false after a successful undo: re-arming would offer to undo again,
  * and a second undo re-activates the exact version just escaped (the undo
@@ -328,6 +366,7 @@ function wireUndo() {
 function refreshLanding(rearm) {
     return luke(["status", "--events"])
         .then((st) => {
+            renderStrip(st);
             renderVerdict(st);
             renderTimeline(st.events);
             if (rearm !== false) armUndo(st);

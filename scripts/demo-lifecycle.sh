@@ -1012,6 +1012,7 @@ verify_static() {
             "$REPO_ROOT"/tests/wizard-e2e/undo.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/recovered.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/landing-responsive.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/live-refresh.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1181,6 +1182,16 @@ wizard_browser() {
         && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_RESPONSIVE=1 \
            COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
            npx playwright test landing-responsive.spec.js )
+
+    # ── the dashboard is live, not a photograph ──
+    # Last, because it acknowledges the recovery (leaving the machine OK): with
+    # the box still RECOVERED, the browser acks through the plugin's own cockpit
+    # session and the verdict flips to OK on the next poll, with no reload —
+    # proving the whole landing refreshes itself, not just the strip.
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_LIVE=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test live-refresh.spec.js )
 
     kill_vm
     say "WIZARD BROWSER E2E COMPLETE — the wizard, hold-to-run undo, the recovered dashboard, on desktop and phone, light and dark"
