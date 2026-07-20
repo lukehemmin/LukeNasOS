@@ -161,8 +161,32 @@ browser-side proof and the polish around it:
     the same 2 GiB floor luke doctor watches) feeds a quiet bar on the landing — supporting
     evidence, spruce normally, the degraded token under pressure. Proven both ways: phase 1c
     asserts the verb on the real machine, wizard.spec asserts the panel's "X of Y (Z%)".
-  Remaining for a fuller dashboard: per-event detail views, live refresh without a reload.
+  - **The landing is live** (PR #16): the same 15s tick that keeps the strip honest now
+    re-renders the whole landing when it is showing, so an update that stages, applies, or
+    rolls itself back appears with no manual reload. Two guards keep the poll off the undo
+    control (undoHolding, undoDone). Proven by acking the recovery through the plugin's own
+    cockpit session and watching the verdict flip to OK with no page.reload(). Caught a real
+    within-tick race: the strip and the verdict were two separate status fetches, and an ack
+    landing between them left them disagreeing for a tick — fixed by rendering both from one
+    `status --events` snapshot.
+  Real-machine states now proven in the browser: OK, armed-undo (the button moves the OS),
+  RECOVERED, live-refresh, and phone/dark (PR #12). The verdict trilogy is missing only
+  DEGRADED — see the next item.
+  Remaining for a fuller dashboard: per-event detail views (the auto-rollback cause — which
+  unit failed — is captured but never surfaced; low marginal value for thin events).
   (L → M, P2, depends: first-boot wizard ✓, event model ✓, DESIGN.md ✓)
+
+- [ ] **DEGRADED verdict is boot-time-only — a real finding, not just a test gap** (found
+  2026-07-20 trying to browser-prove it, PR #17 closed). `current_verdict` returns DEGRADED
+  from `systemctl is-failed greenboot-healthcheck.service`, but that unit is
+  `RefuseManualStart=yes` and runs once, at boot, via boot-complete.target. So the DEGRADED
+  verdict is only reachable when a required check fails AT BOOT without a rollback — a
+  problem that develops post-boot (a disk filling after boot, a service dying) never re-runs
+  the healthcheck, so `luke status` keeps saying OK while `luke doctor`'s active checks would
+  show the fault. The dashboard renders DEGRADED correctly (same code path as OK/RECOVERED,
+  shipped PR #7); what is thin is the verdict's post-boot coverage. Options: have a periodic
+  timer re-run the checks and mark the unit, or let `luke doctor` feed the verdict. Decide
+  before leaning on DEGRADED as a live signal. (S → S, P2)
 
 - [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
   `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
