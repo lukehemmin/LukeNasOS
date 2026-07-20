@@ -1013,6 +1013,7 @@ verify_static() {
             "$REPO_ROOT"/tests/wizard-e2e/recovered.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/landing-responsive.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/live-refresh.spec.js \
+            "$REPO_ROOT"/tests/wizard-e2e/degraded.spec.js \
             "$REPO_ROOT"/tests/wizard-e2e/playwright.config.js
     fi
 
@@ -1192,6 +1193,24 @@ wizard_browser() {
         && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_LIVE=1 \
            COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
            npx playwright test live-refresh.spec.js )
+
+    # ── the third verdict: DEGRADED, never seen on a real machine ──
+    # A required health check fails RIGHT NOW, not at boot — so no rollback: the
+    # machine stays up and reachable, but luke's verdict turns ✕ DEGRADED, the
+    # "you must act" state. The recovery was acked just above, so current_verdict
+    # falls through RECOVERED to the failed healthcheck. Last browser step, then
+    # the VM is torn down; the check is removed anyway for tidiness.
+    say "degraded state: fail a required check now, show the dashboard's ✕ verdict"
+    vm_root sh -c "'printf \"#!/usr/bin/env bash\nexit 1\n\" > /etc/greenboot/check/required.d/99-demo-degraded.sh && chmod 0755 /etc/greenboot/check/required.d/99-demo-degraded.sh'"
+    vm_root systemctl restart greenboot-healthcheck.service || true
+    assert_eq "the verdict turned DEGRADED" "DEGRADED" \
+        "$(vm_root luke status --json | jq -r .verdict)"
+    wait_cockpit
+    ( cd "$REPO_ROOT/tests/wizard-e2e" \
+        && LUKE_TOKEN="$token" LUKE_OWNER="$SETUP_USER" LUKE_DEGRADED=1 \
+           COCKPIT_URL="https://localhost:$COCKPIT_PORT" \
+           npx playwright test degraded.spec.js )
+    vm_root rm -f /etc/greenboot/check/required.d/99-demo-degraded.sh
 
     kill_vm
     say "WIZARD BROWSER E2E COMPLETE — the wizard, hold-to-run undo, the recovered dashboard, on desktop and phone, light and dark"

@@ -276,11 +276,12 @@ jobs:
     # it back, so the browser can render the RECOVERED dashboard — the
     # product's headline state. Then it screenshots the finished landing on a
     # phone viewport and in dark mode (DESIGN.md's mobile-first and dual-theme
-    # commitments, proven nowhere else), and last acknowledges the recovery
-    # through the plugin's own channel to prove the dashboard refreshes itself
-    # with no reload. A separate job with its own fresh install, because the
-    # wizard mutates the machine exactly the way phase 1c does: the two can
-    # never share a disk.
+    # commitments, proven nowhere else), acknowledges the recovery through the
+    # plugin's own channel to prove the dashboard refreshes itself with no
+    # reload, and finally fails a required check to render the third verdict,
+    # ✕ DEGRADED. A separate job with its own fresh install, because the wizard
+    # mutates the machine exactly the way phase 1c does: the two can never share
+    # a disk.
     runs-on: ubuntu-latest
     needs: build
     steps:
