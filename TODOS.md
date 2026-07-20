@@ -156,9 +156,13 @@ browser-side proof and the polish around it:
     gained `rollback_blocked` and both the undo button and the health strip now refuse to
     offer it ("previous version set aside") instead of a green "armed ✓" the disabled undo
     would contradict.
-  Remaining for a fuller dashboard: storage/capacity panel, per-event detail views, live
-  refresh without a reload, phone/dark Playwright projects. (L → M, P2, depends: first-boot
-  wizard ✓, event model ✓, DESIGN.md ✓)
+  - **The storage panel** (PR #14): a new `luke storage --json` verb (total/used/free/
+    percent from df on /var/mnt/data, plus btrfs unallocated bytes and a `pressure` flag on
+    the same 2 GiB floor luke doctor watches) feeds a quiet bar on the landing — supporting
+    evidence, spruce normally, the degraded token under pressure. Proven both ways: phase 1c
+    asserts the verb on the real machine, wizard.spec asserts the panel's "X of Y (Z%)".
+  Remaining for a fuller dashboard: per-event detail views, live refresh without a reload.
+  (L → M, P2, depends: first-boot wizard ✓, event model ✓, DESIGN.md ✓)
 
 - [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
   `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
