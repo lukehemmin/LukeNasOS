@@ -169,24 +169,20 @@ browser-side proof and the polish around it:
     within-tick race: the strip and the verdict were two separate status fetches, and an ack
     landing between them left them disagreeing for a tick — fixed by rendering both from one
     `status --events` snapshot.
-  Real-machine states now proven in the browser: OK, armed-undo (the button moves the OS),
-  RECOVERED, live-refresh, and phone/dark (PR #12). The verdict trilogy is missing only
-  DEGRADED — see the next item.
+  - **The verdict is live, and DEGRADED is reachable** (PR #19): the DEGRADED investigation
+    (PR #17, closed) found `current_verdict` read DEGRADED only from greenboot-healthcheck,
+    which runs ONCE at boot — so a post-boot fault (samba dying, the pool filling) never
+    surfaced and `luke status` stayed OK. Fixed with `luke/health-recheck` on
+    `lukenasos-health.timer` (instant probes every 5 min, no boot grace), a marker
+    current_verdict also reads, and `degraded_cause` in the status JSON so the dashboard
+    names the fault instead of a generic "your data is still served" that could be a lie.
+    Browser-proven by killing samba on the running machine → ✕ DEGRADED naming the file
+    server: the third verdict finally rendered on a real machine, reachability fixed at once.
+  All three verdicts (OK, RECOVERED, DEGRADED) plus armed-undo, live-refresh, storage, and
+  phone/dark are now proven in the browser on real machines.
   Remaining for a fuller dashboard: per-event detail views (the auto-rollback cause — which
   unit failed — is captured but never surfaced; low marginal value for thin events).
   (L → M, P2, depends: first-boot wizard ✓, event model ✓, DESIGN.md ✓)
-
-- [ ] **DEGRADED verdict is boot-time-only — a real finding, not just a test gap** (found
-  2026-07-20 trying to browser-prove it, PR #17 closed). `current_verdict` returns DEGRADED
-  from `systemctl is-failed greenboot-healthcheck.service`, but that unit is
-  `RefuseManualStart=yes` and runs once, at boot, via boot-complete.target. So the DEGRADED
-  verdict is only reachable when a required check fails AT BOOT without a rollback — a
-  problem that develops post-boot (a disk filling after boot, a service dying) never re-runs
-  the healthcheck, so `luke status` keeps saying OK while `luke doctor`'s active checks would
-  show the fault. The dashboard renders DEGRADED correctly (same code path as OK/RECOVERED,
-  shipped PR #7); what is thin is the verdict's post-boot coverage. Options: have a periodic
-  timer re-run the checks and mark the unit, or let `luke doctor` feed the verdict. Decide
-  before leaning on DEGRADED as a live signal. (S → S, P2)
 
 - [x] **Visual system (DESIGN.md) — shipped 2026-07-19** (PR #6, branch
   `m2-design-system`): /design-consultation produced DESIGN.md with two layers held in
