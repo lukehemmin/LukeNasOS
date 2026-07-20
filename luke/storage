@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# luke storage — how full the NAS is, and whether the pool is healthy.
+#
+# A recovery-first NAS still has to answer the plainest storage question:
+# "how much room is left?" The user's data lives on the @data subvolume at
+# /var/mnt/data, and because the disk is a single btrfs pool, df there reports
+# the whole pool the OS and the data share — which is exactly the "how full is
+# my NAS" number a user means.
+#
+# Fullness (df: size/avail) is what the panel shows. But btrfs fails on
+# metadata exhaustion, not on df-free hitting zero, so the JSON also carries
+# unallocated bytes and a `pressure` flag on the same 2 GiB floor luke doctor
+# and the greenboot space check use — one number the dashboard can escalate on
+# before a reboot turns pressure into a failed boot.
+
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+parse_common_flags "$@"
+for a in "${PARSED_ARGS[@]}"; do
+    case "$a" in
+        *) die "$EXIT_USAGE" LUKE-E002 "unknown option '$a'" \
+             "luke storage accepts --json" "luke storage" ;;
+    esac
+done
+
+DATA=/var/mnt/data
+
+if ! mountpoint -q "$DATA" 2>/dev/null; then
+    die "$EXIT_ERROR" LUKE-E050 \
+        "the data volume is not mounted" \
+        "/var/mnt/data (the @data subvolume) is where shares and their storage live" \
+        "systemctl status var-mnt-data.mount"
+fi
+
+# statvfs via df: size and available in bytes. used = size - avail, the number
+# a fullness bar should show (df's own "used" column subtracts btrfs reserve
+# and reads oddly across versions; size-avail is stable and is what "how much
+# room is left" means to a person).
+read -r size avail < <(df -B1 --output=size,avail "$DATA" 2>/dev/null | tail -1)
+if [ -z "${size:-}" ] || [ -z "${avail:-}" ] || [ "$size" -le 0 ] 2>/dev/null; then
+    die "$EXIT_ERROR" LUKE-E051 \
+        "could not read the data volume's size" \
+        "df returned nothing usable for $DATA" \
+        "luke doctor"
+fi
+used=$(( size - avail ))
+percent=$(( used * 100 / size ))
+
+# btrfs metadata headroom, the same floor luke doctor watches. Absent btrfs
+# (or on a non-btrfs test rig), unallocated is null and pressure is false —
+# the fullness numbers still stand on their own.
+POOL=/sysroot
+mountpoint -q "$POOL" 2>/dev/null || POOL=/
+unalloc=""
+FLOOR=$(( 2 * 1024 * 1024 * 1024 ))
+if command -v btrfs >/dev/null 2>&1 && btrfs filesystem usage -b "$POOL" >/dev/null 2>&1; then
+    unalloc=$(btrfs filesystem usage -b "$POOL" 2>/dev/null \
+        | awk '/unallocated:/ {print $3; exit}')
+fi
+pressure=false
+if [ -n "$unalloc" ] && [ "$unalloc" -lt "$FLOOR" ] 2>/dev/null; then
+    pressure=true
+fi
+
+if [ "$JSON" = 1 ]; then
+    jq -n \
+        --arg path "$DATA" \
+        --argjson total "$size" \
+        --argjson used "$used" \
+        --argjson free "$avail" \
+        --argjson percent "$percent" \
+        --argjson unalloc "${unalloc:-null}" \
+        --argjson pressure "$pressure" \
+        '{data: {path: $path, total_bytes: $total, used_bytes: $used,
+                 free_bytes: $free, percent_used: $percent},
+          pool: {unallocated_bytes: $unalloc, pressure: $pressure}}'
+    exit "$EXIT_OK"
+fi
+
+human() {  # bytes → human, mirroring df -h's rounding closely enough for a line
+    numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"
+}
+echo "Storage: $(human "$used") used of $(human "$size") (${percent}%)"
+echo "   Free:  $(human "$avail")"
+if [ "$pressure" = true ]; then
+    echo "   ${C_BAD}${SYM_DEGRADED}${C_OFF} Pool space is tight — run luke doctor"
+fi
+exit "$EXIT_OK"

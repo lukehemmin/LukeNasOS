@@ -193,6 +193,21 @@
                 <dt>Administrator</dt><dd id="done-user">—</dd>
                 <dt>OS version</dt><dd id="done-version">—</dd>
             </dl>
+
+            <!-- Storage as supporting evidence, not the hero (DESIGN.md): one
+                 quiet line and a bar. Hidden until luke storage answers, so a
+                 machine that cannot read it shows nothing rather than a lie. -->
+            <div class="storage" id="storage" hidden>
+                <div class="storage-head">
+                    <span>Storage</span>
+                    <span class="storage-figure" id="storage-figure">—</span>
+                </div>
+                <div class="storage-bar">
+                    <div class="storage-fill" id="storage-fill"></div>
+                </div>
+                <p class="muted storage-note" id="storage-note" hidden></p>
+            </div>
+
             <h3>Shares</h3>
             <ul class="share-list" id="done-share-list">
                 <li class="muted">none yet — make one over ssh with

@@ -692,6 +692,17 @@ phase_1c_setup() {
         "$(smb_get "$SETUP_SHARE" family-photos.txt)"
 
     assert_json "setup reports complete" .complete true -- luke setup status --json
+
+    # Storage: the plainest NAS question, answered by its own verb. /data is
+    # mounted and now holds a share, so this reports the pool the dashboard
+    # draws its bar from — checked here on the real machine, independent of the
+    # browser that renders it.
+    assert_json "storage points at the data volume" .data.path /var/mnt/data \
+        -- luke storage --json
+    assert_eq "storage reports a positive total" "true" \
+        "$(vm_root luke storage --json | jq -r '.data.total_bytes > 0')"
+    assert_eq "storage percent is within 0..100" "true" \
+        "$(vm_root luke storage --json | jq -r '.data.percent_used >= 0 and .data.percent_used <= 100')"
 }
 
 # The harness's own root access, granted the way the test kickstart grants it to
@@ -960,7 +971,7 @@ verify_static() {
             "$REPO_ROOT"/luke/update "$REPO_ROOT"/luke/undo "$REPO_ROOT"/luke/factory-reset \
             "$REPO_ROOT"/luke/doctor "$REPO_ROOT"/luke/banner "$REPO_ROOT"/luke/boot-check \
             "$REPO_ROOT"/luke/setup "$REPO_ROOT"/luke/identity-apply \
-            "$REPO_ROOT"/luke/unlock-console \
+            "$REPO_ROOT"/luke/storage "$REPO_ROOT"/luke/unlock-console \
             "$REPO_ROOT"/luke/lib.sh \
             "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/config/greenboot/check/required/*.sh \
             "$REPO_ROOT"/config/greenboot/red.d/*.sh \
