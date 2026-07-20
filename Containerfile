@@ -180,6 +180,7 @@ RUN systemctl enable \
         avahi-daemon.service \
         lukenasos-scrub.timer \
         lukenasos-space-watchdog.timer \
+        lukenasos-health.timer \
         lukenasos-balance.timer \
         var-mnt-data.mount \
         nftables.service \

@@ -226,11 +226,16 @@ function renderVerdict(st) {
             "automatically" + (to ? " — running " + to : "") +
             ". Your data volume was never touched.";
     } else {
+        // Name what actually failed when the live re-check knows it (a generic
+        // "your data is still served" could be a lie when it is samba that
+        // died); otherwise stay honest and point at the tool that will say.
         word.className = "verdict-word bad";
         word.textContent = "Something needs attention.";
+        const cause = st.degraded_cause
+            ? st.degraded_cause.charAt(0).toUpperCase() + st.degraded_cause.slice(1) + ". "
+            : "A health check is failing. ";
         $("verdict-plain").textContent =
-            "Your data is still served. Run luke doctor over ssh for the " +
-            "exact next step.";
+            cause + "Run luke doctor over ssh for the exact next step.";
     }
     $("verdict-meta").textContent = "booted " + (st.booted || "unknown") +
         (st.staged ? " · staged " + st.staged : "") +
